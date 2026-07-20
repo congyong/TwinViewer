@@ -8,10 +8,10 @@ import { CompareGrid } from '@/components/CompareGrid'
 import { Filmstrip } from '@/components/Filmstrip'
 import { HelpOverlay } from '@/components/HelpOverlay'
 import { OpenFolderDialog } from '@/components/OpenFolderDialog'
-import { PendingOpenConfirm } from '@/components/PendingOpenConfirm'
 import { EmptyState } from '@/components/EmptyState'
 import { useKeyboard } from '@/hooks/useKeyboard'
 import { getNavList, useAppStore } from '@/store/appStore'
+import { getFSProvider } from '@/lib/fs-provider'
 
 export default function App() {
   useKeyboard()
@@ -67,6 +67,13 @@ export default function App() {
     const sync = () => useAppStore.setState({ physicalFullscreen: !!document.fullscreenElement })
     document.addEventListener('fullscreenchange', sync)
     return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
+  // 主进程 CLI 下发（cli-open）：首次启动参数与单实例转发共用
+  useEffect(() => {
+    const provider = getFSProvider()
+    if (!provider.onCliOpen) return
+    return provider.onCliOpen((payload) => void useAppStore.getState().applyCliOpen(payload))
   }, [])
 
   const hasImages = images.length > 0

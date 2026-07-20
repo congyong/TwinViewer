@@ -4,8 +4,14 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('twinview', {
-  /** 弹出系统目录选择框，返回绝对路径或 null */
+  /** 弹出系统选择框（win32 文件/文件夹均可选），返回 {path, isFile} 或 null */
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  /** 订阅主进程 CLI 下发（单实例转发同源），返回取消订阅函数 */
+  onCliOpen: (cb) => {
+    const listener = (_event, payload) => cb(payload)
+    ipcRenderer.on('cli-open', listener)
+    return () => ipcRenderer.removeListener('cli-open', listener)
+  },
   /** 递归/非递归扫描目录，返回 {path,name,size,lastModified}[] */
   scanDirectory: (dir, recursive) => ipcRenderer.invoke('scan-directory', dir, recursive),
   /** 列出一层子目录，返回 {name,path,imageCount,hasSubdirs}[] */

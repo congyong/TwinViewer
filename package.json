@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:7100 && electron .\"",
+    "electron:cli": "wait-on http://localhost:7100 && electron . --",
     "electron:build": "npm run build && electron-builder"
   },
   "build": {

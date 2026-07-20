@@ -6,7 +6,7 @@
  * - ALT 取样记录（samples，最多 10 条）与物理全屏状态（Fullscreen API）
  */
 import { create } from 'zustand'
-import type { DirectorySource, ImageEntry } from '@/lib/fs-provider'
+import type { CliOpenPayload, DirectorySource, ImageEntry } from '@/lib/fs-provider'
 import { getFSProvider, getExtension, isElectron } from '@/lib/fs-provider'
 import type { DirNode } from '@/lib/dir-tree'
 import { fsAccessChildren, fallbackChildren, absDirOf, isAbsPath, normalizeSlashes, scopeOk } from '@/lib/dir-tree'
@@ -234,8 +234,10 @@ export interface AppState {
   openPath: (path: string) => Promise<void>
   rescan: () => Promise<void>
   setOpenFolderDialog: (v: boolean) => void
-  confirmPendingOpen: () => void
-  discardPendingOpen: (reselect: boolean) => Promise<void>
+  /** 打开目录并（可选）按绝对路径定位选中某文件（系统选择器选中文件 / CLI 文件路径共用） */
+  openPathFocus: (dirPath: string, focusFile?: string) => Promise<void>
+  /** 主进程 CLI 下发（cli-open）：直接生效，不走任何确认弹窗 */
+  applyCliOpen: (payload: CliOpenPayload) => Promise<void>
   setRecursive: (v: boolean) => void
   setCurrentPath: (path: string) => void
   toggleTreeNode: (relPath: string) => void
@@ -373,21 +375,72 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   setOpenFolderDialog: (v) => set({ openFolderDialogOpen: v }),
 
-  confirmPendingOpen: () => {
-    const p = get().pendingOpen
-    if (!p) return
-    get().revokeAll()
-    clearDecodeSession()
-    clearProbeCache()
-    set({ ...freshState(p.dir, p.images), pendingOpen: null })
-    void get().loadAncestors()
+  openPathFocus: async (dirPath, focusFile) => {
+    await get().openPath(dirPath)
+    if (!focusFile) return
+    const norm = normalizeSlashes(focusFile).toLowerCase()
+    const hit = get().images.find((e) => normalizeSlashes(e.path).toLowerCase() === norm)
+    if (hit) set({ currentId: hit.id })
   },
 
-  discardPendingOpen: async (reselect) => {
-    const p = get().pendingOpen
-    set({ pendingOpen: null })
-    if (p) for (const e of p.images) e.revoke()
-    if (reselect) await get().openDirectory()
+  applyCliOpen: async (payload) => {
+    const provider = getFSProvider()
+    if (provider.kind !== 'electron' || !provider.scanPath) return
+    const { kind, paths, flags } = payload
+    if (flags.theme) get().setTheme(flags.theme)
+    if (flags.recursive) get().setRecursive(true)
+    const norm = (x: string) => normalizeSlashes(x).toLowerCase()
+    const findByPath = (p: string) => get().images.find((e) => norm(e.path) === norm(p))
+
+    if (kind === 'folder') {
+      const target = paths[0]
+      if (!target) return
+      // 文件 → 打开所在文件夹并定位选中；文件夹 → 直接打开
+      if (payload.isFile) await get().openPathFocus(absDirOf(target), target)
+      else await get().openPath(target)
+      return
+    }
+
+    // --compare A B：打开共同（或 A 的）所在文件夹，A/B 入槽进对比
+    const [a, b] = paths
+    if (!a || !b) return
+    const dirA = normalizeSlashes(absDirOf(a)).split('/')
+    const dirB = normalizeSlashes(absDirOf(b)).split('/')
+    const common: string[] = []
+    for (let i = 0; i < Math.min(dirA.length, dirB.length); i++) {
+      if (dirA[i].toLowerCase() !== dirB[i].toLowerCase()) break
+      common.push(dirA[i])
+    }
+    await get().openPath(common.length > 0 ? common.join('/') : dirA.join('/'))
+    const ea = findByPath(a)
+    const eb = findByPath(b)
+    if (!ea) {
+      set({ loadError: `CLI 对比：在打开目录中找不到 ${a}` })
+      return
+    }
+    if (!eb) console.warn(`[CLI] 对比图片 B 不在打开目录树下，仅设置 A 槽: ${b}`)
+    set({ slotA: ea.id, slotB: eb?.id ?? null })
+    if (flags.layout === 'grid') {
+      set({
+        gridIds: eb ? [ea.id, eb.id] : [ea.id],
+        gridActiveIdx: 0,
+        viewMode: 'grid',
+        fullscreenCell: null,
+        sharedTransform: newTransform(),
+      })
+    } else {
+      if (flags.layout) get().setCompareLayout(flags.layout)
+      if (!eb) get().ensureSlots()
+      set({
+        viewMode: 'compare',
+        activeSlot: 'A',
+        fullscreenCell: null,
+        sharedTransform: newTransform(),
+        transformA: newTransform(),
+        transformB: newTransform(),
+      })
+    }
+    preloadCurrentContext(get())
   },
 
   openPath: async (path) => {

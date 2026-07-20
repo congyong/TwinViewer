@@ -46,6 +46,8 @@ export interface FSProvider {
   kind: 'browser' | 'electron'
   pickDirectory(): Promise<DirectorySource | null>
   listImages(dir: DirectorySource, recursive: boolean): Promise<ImageEntry[]>
+  /** Electron 专用：订阅主进程 CLI 下发（cli-open），返回取消订阅函数 */
+  onCliOpen?(cb: (payload: CliOpenPayload) => void): () => void
   /** Electron 专用：按路径直接扫描（用于收藏夹） */
   scanPath?(dirPath: string, recursive: boolean): Promise<{ dir: DirectorySource; images: ImageEntry[] }>
   /** Electron 专用：列出一层子目录（含本层图片数/是否有子目录） */
@@ -76,6 +78,19 @@ export interface BrowseDirResult {
   path: string | null
   parent: string | null
   dirs: DirInfo[]
+}
+
+/** 主进程 CLI 下发载荷（cli-open IPC） */
+export interface CliOpenPayload {
+  kind: 'folder' | 'compare'
+  paths: string[]
+  flags: {
+    recursive?: boolean
+    theme?: 'dark' | 'light' | 'system'
+    layout?: 'wipe' | 'side' | 'overlay' | 'grid'
+  }
+  /** kind=folder 时：路径是文件（打开所在文件夹并定位选中） */
+  isFile: boolean
 }
 
 export interface DirImagePreview {
@@ -112,7 +127,8 @@ interface ScannedFile {
 }
 
 interface TwinviewBridge {
-  selectDirectory(): Promise<string | null>
+  selectDirectory(): Promise<{ path: string; isFile: boolean } | null>
+  onCliOpen(cb: (payload: CliOpenPayload) => void): () => void
   scanDirectory(dir: string, recursive: boolean): Promise<ScannedFile[]>
   listDirs(dir: string): Promise<DirInfo[]>
   getAncestors(dir: string): Promise<DirInfo[]>
@@ -291,9 +307,19 @@ class ElectronFSProvider implements FSProvider {
   }
 
   async pickDirectory(): Promise<DirectorySource | null> {
-    const dir = await this.bridge().selectDirectory()
-    if (!dir) return null
-    return { name: dir, dirPath: dir }
+    const r = await this.bridge().selectDirectory()
+    if (!r) return null
+    // 选中文件 → 打开所在文件夹并定位选中该文件（focusFile 由 store 处理）
+    if (r.isFile) {
+      const norm = r.path.replace(/\\/g, '/')
+      const i = norm.lastIndexOf('/')
+      return { name: norm.slice(0, i), dirPath: norm.slice(0, i), focusFile: r.path }
+    }
+    return { name: r.path, dirPath: r.path }
+  }
+
+  onCliOpen(cb: (payload: CliOpenPayload) => void): () => void {
+    return this.bridge().onCliOpen(cb)
   }
 
   async listImages(dir: DirectorySource, recursive: boolean): Promise<ImageEntry[]> {

@@ -2,6 +2,9 @@
  * TwinView Electron 主进程
  * - dev：加载 http://localhost:7100（Vite dev server）
  * - prod：加载 dist/index.html
+ * - CLI：TwinView.exe <路径>（文件夹直接打开；文件打开所在文件夹并选中）、
+ *   --compare <A> <B>（A/B 对比）、--recursive / --theme / --layout / --help；
+ *   单实例（second-instance 转发参数到现有窗口），解析后经 cli-open IPC 下发渲染进程
  * - IPC：select-directory（系统对话框）、scan-directory（递归扫描图片）
  * - 自定义协议 twinview://local/<encodeURIComponent(绝对路径)> 提供本地文件（免拷贝）
  */
@@ -30,6 +33,134 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ])
+
+/* ------------------------- CLI 参数解析与单实例 ------------------------- */
+
+const CLI_HELP = `TwinView 图片对比浏览器
+用法:
+  TwinView.exe <文件夹>                    打开文件夹
+  TwinView.exe <图片文件>                  打开所在文件夹并选中该图片
+  TwinView.exe --compare <图片A> <图片B>   打开共同所在文件夹并进入 A/B 对比
+可选参数:
+  --recursive                      本次会话开启「含子文件夹」
+  --theme dark|light|system        指定主题
+  --layout wipe|side|overlay|grid  对比显示模式（配合 --compare）
+  --help                           打印本说明
+未识别的参数会被忽略并警告到 stdout。`
+
+/** 解析 CLI 参数（argv 已切掉 electron/应用路径；容忍前导 --） */
+function parseCliArgs(argv) {
+  const out = { kind: null, paths: [], flags: {}, warnings: [], help: false }
+  const args = [...argv]
+  if (args[0] === '--') args.shift()
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === '--help' || a === '-h') {
+      out.help = true
+      continue
+    }
+    if (a === '--compare') {
+      const x = args[i + 1]
+      const y = args[i + 2]
+      if (x && y && !x.startsWith('--') && !y.startsWith('--')) {
+        out.kind = 'compare'
+        out.paths = [x, y]
+        i += 2
+      } else {
+        out.warnings.push('--compare 需要两个图片路径参数')
+      }
+      continue
+    }
+    if (a === '--recursive') {
+      out.flags.recursive = true
+      continue
+    }
+    if (a === '--theme') {
+      const v = args[i + 1]
+      if (v === 'dark' || v === 'light' || v === 'system') {
+        out.flags.theme = v
+        i += 1
+      } else {
+        out.warnings.push(`--theme 无效值: ${v ?? '(缺失)'}（可选 dark|light|system）`)
+      }
+      continue
+    }
+    if (a === '--layout') {
+      const v = args[i + 1]
+      if (v === 'wipe' || v === 'side' || v === 'overlay' || v === 'grid') {
+        out.flags.layout = v
+        i += 1
+      } else {
+        out.warnings.push(`--layout 无效值: ${v ?? '(缺失)'}（可选 wipe|side|overlay|grid）`)
+      }
+      continue
+    }
+    if (a.startsWith('--')) {
+      out.warnings.push(`未识别参数: ${a}`)
+      continue
+    }
+    if (out.kind === null) {
+      out.kind = 'folder'
+      out.paths = [a]
+    } else {
+      out.warnings.push(`多余的路径参数: ${a}`)
+    }
+  }
+  return out
+}
+
+/** 解析 → stat 判型 → 经 cli-open IPC 下发渲染进程（窗口未加载完则等加载后下发） */
+async function dispatchCli(argv, win) {
+  if (!win || win.isDestroyed()) return
+  const cli = parseCliArgs(argv)
+  for (const w of cli.warnings) console.log(`[CLI] 警告: ${w}`)
+  if (cli.help) console.log(CLI_HELP)
+  if (!cli.kind) return
+  const payload = { kind: cli.kind, paths: cli.paths, flags: cli.flags, isFile: false }
+  try {
+    const st = await fs.stat(cli.paths[0])
+    if (cli.kind === 'folder') payload.isFile = st.isFile()
+    if (cli.kind === 'compare' && !st.isFile()) {
+      console.log(`[CLI] 警告: 不是图片文件 ${cli.paths[0]}`)
+      return
+    }
+    if (cli.kind === 'compare') {
+      const stB = await fs.stat(cli.paths[1])
+      if (!stB.isFile()) {
+        console.log(`[CLI] 警告: 不是图片文件 ${cli.paths[1]}`)
+        return
+      }
+    }
+  } catch {
+    console.log(`[CLI] 警告: 路径不存在或不可读 ${cli.paths[0]}`)
+    return
+  }
+  const send = () => {
+    if (!win.isDestroyed()) win.webContents.send('cli-open', payload)
+  }
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
+  else send()
+}
+
+/** 当前进程自己的 CLI argv（打包后 slice(1)，dev electron . 下 slice(2)） */
+function selfCliArgv() {
+  return process.argv.slice(app.isPackaged ? 1 : 2)
+}
+
+// 单实例：已运行时再次调用 → second-instance 把新参数转发给现有窗口（焦点前置），不新开窗口。
+// 冒烟模式跳过锁（允许与常驻实例并行自检）。
+const gotSingleInstanceLock = SMOKE ? true : app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (!win) return
+    if (win.isMinimized()) win.restore()
+    win.focus()
+    void dispatchCli(argv.slice(app.isPackaged ? 1 : 2), win)
+  })
+}
 
 /** 递归收集目录下所有图片文件 */
 async function pathExists(p) {
@@ -362,6 +493,56 @@ async function runSmokeTest(win) {
         return fail(`UI 验证不符预期: ${JSON.stringify(ui)}`)
       }
 
+      // a.7) CLI cli-open 注入：folder+file 定位选中 → --compare 两图槽位/布局/主题 flag
+      const cliA = path.join(SMOKE_TEST_DIR, 'A1_red_800x600.jpg')
+      const cliB = path.join(SMOKE_TEST_DIR, 'sub', 'S1_sub_700x500.jpg')
+      win.webContents.send('cli-open', { kind: 'folder', paths: [cliB], flags: {}, isFile: true })
+      const cliFolder = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        for (let i = 0; i < 50; i++) {
+          const s = store.getState()
+          if (!s.loading && s.currentId && s.currentId.endsWith('S1_sub_700x500.jpg')) break
+          await wait(100)
+        }
+        const s = store.getState()
+        return { currentId: s.currentId, viewMode: s.viewMode, images: s.images.length }
+      })()`)
+      console.log(`[SMOKE] CLI folder+file: ${JSON.stringify(cliFolder)}`)
+      if (!cliFolder.currentId || !cliFolder.currentId.endsWith('S1_sub_700x500.jpg') || cliFolder.images !== 2) {
+        clearTimeout(killer)
+        return fail(`CLI folder+file 定位不符预期（应打开 sub 文件夹=2 张并选中文件）: ${JSON.stringify(cliFolder)}`)
+      }
+      win.webContents.send('cli-open', { kind: 'compare', paths: [cliA, cliB], flags: { layout: 'side', theme: 'dark', recursive: true } })
+      const cliCompare = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        for (let i = 0; i < 50; i++) {
+          const s = store.getState()
+          if (!s.loading && s.viewMode === 'compare' && s.slotB) break
+          await wait(100)
+        }
+        const s = store.getState()
+        const out = {
+          viewMode: s.viewMode, slotA: s.slotA, slotB: s.slotB,
+          layout: s.compareLayout, theme: s.theme, recursive: s.recursive,
+        }
+        // 复位浏览视图（不干扰后续截图）
+        s.setViewMode('browse')
+        await wait(200)
+        return out
+      })()`)
+      console.log(`[SMOKE] CLI compare: ${JSON.stringify(cliCompare)}`)
+      const cliCmpOk =
+        cliCompare.viewMode === 'compare' &&
+        typeof cliCompare.slotA === 'string' && cliCompare.slotA.endsWith('A1_red_800x600.jpg') &&
+        typeof cliCompare.slotB === 'string' && cliCompare.slotB.endsWith('S1_sub_700x500.jpg') &&
+        cliCompare.layout === 'side' && cliCompare.theme === 'dark' && cliCompare.recursive === true
+      if (!cliCmpOk) {
+        clearTimeout(killer)
+        return fail(`CLI compare 注入不符预期: ${JSON.stringify(cliCompare)}`)
+      }
+
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
       await new Promise((r) => setTimeout(r, 3000))
       let image = null
@@ -433,7 +614,8 @@ async function runSmokeTest(win) {
   })
 }
 
-app.whenReady().then(() => {
+// 主初始化仅在持有单实例锁时执行（未持锁进程已 app.quit，避免仍建窗）
+if (gotSingleInstanceLock) app.whenReady().then(() => {
   // twinview://local/<encodeURIComponent(绝对路径)> → 本地文件
   // 附加 CORS 头：file:// 页面（生产模式）里 fetch 该协议时跨源校验需要
   protocol.handle('twinview', async (request) => {
@@ -680,6 +862,15 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+// 仅在拿到单实例锁时启动主窗口；拿不到锁的进程已在上方 app.quit()
+if (gotSingleInstanceLock) {
+  void app.whenReady().then(() => {
+    const win = BrowserWindow.getAllWindows()[0]
+    // 首次启动携带的 CLI 参数（冒烟模式跳过，由冒烟自行注入 cli-open）
+    if (!SMOKE && win) void dispatchCli(selfCliArgv(), win)
+  })
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
