@@ -12,7 +12,7 @@
 │ App.tsx（布局骨架 + 导航集合 reconcile + fullscreenchange 同步）                  │
 │  ├─ Toolbar（模式/排序/布局/重采样/开关）                                         │
 │  ├─ Sidebar（文件夹树 / 收藏 / ALT 取样记录）                                     │
-│  ├─ ThumbnailGrid（浏览 + 右键文件操作）                                          │
+│  ├─ ThumbnailGrid（面包屑 + 子文件夹卡片 + 图标/列表四档 + 右键文件操作）          │
 │  ├─ SingleView ─┐                                                               │
 │  ├─ CompareView ─┼── ViewerPane（双缓冲帧模型 / 缩放平移 / wipe / ALT 探针）      │
 │  ├─ CompareGrid ─┘        │                                                     │
@@ -100,32 +100,45 @@
 - FS Access：操作前 `ensureReadWrite` 按需申请；删除 = `handle.remove()` 直删（Chrome 110+，不进回收站）；webkitdirectory 回退全部禁用（`writeSupported` / `writeUnsupportedReason`）。
 - 操作成功后 `rescan()`（重扫保留偏好，勾选/槽位/视图重置——见 freshState）。
 
+### 2.5 浏览网格：子文件夹 / 面包屑 / 显示模式（`src/components/ThumbnailGrid.tsx`）
+
+- **子文件夹条目**：当前目录的直接子文件夹（`treeChildren[currentPath]`，复用文件夹树的 `loadTreeChildren` 懒加载缓存，三种数据源行为一致）**无论 recursive 开关都显示，排在图片前**。
+  - 图标档 = `FolderCard`：递归视野内前 4 张图片（按名称序）2×2 `object-cover` 拼贴（1 张占满整格），无图片时纯文件夹图标；名称 + 递归图片计数；IntersectionObserver 进入视口才 `getUrl()`。
+  - 列表档 = `FolderRow`：文件夹图标 + 名称 + 「文件夹 · N」（计数列），像素尺寸/时间为 `—`；无勾选框（勾选是图片概念，勾选框只在图片行首）。
+  - 交互：单击选中（组件本地 `selectedFolder`，切换目录自动清空）；**双击 = `setCurrentPath(node.relPath)` 进入**（与文件夹树同一视野机制）；右键仅「打开」（文件操作留后续）。
+  - `folderEntries`：一次遍历 `images` 按 `scopeOk(e, dir, node.relPath, true)` 归入各子文件夹（同层不重叠，命中即停），供拼贴与计数；O(图片数 × 本层子文件夹数)。
+- **面包屑**（`BreadcrumbBar`，网格上方固定条）：根名/逐段可点击跳转；`currentPath` 为祖先链绝对路径时分段为绝对前缀。左侧 ↑ 按钮 = `navigateUp()`（相对路径逐段回退到 `''`；绝对路径用 `absDirOf` 逐级向上）；**Backspace 同效**（useKeyboard 浏览分支）。文件夹树高亮、面包屑、网格视野共用 `currentPath`，天然一致。
+- **显示模式四档**（`browseMode: 'large'|'medium'|'small'|'list'`，localStorage `twinview.browseMode` 持久化）：工具栏 segmented 替代原尺寸滑块；`BROWSE_MODE_SIZE` 固定映射 大 256 / 中 168 / 小 112（`setBrowseMode` 同步写 `thumbSize`；列表档不动 `thumbSize`，切回图标档尺寸不丢）。
+- **列表模式**：`ListHeader` 列头（名称/大小/修改时间可点击——同列切 `sortAsc`、异列换 `sortKey`，复用全局排序状态）+ `ImageRow`（checkbox、40px 缩略图、名称、像素尺寸、大小、修改时间）/ `FolderRow`。
+  - **像素尺寸**：`<img onLoad>` 读 `naturalWidth/Height`，模块级 `dimsCache`（Map，无上限，会话内有效）避免滚动闪烁；**不经 decode-cache**（小图直读 `getUrl()`，与缩略图同策略）。
+  - 图片行双击进单图、单击 `setCurrent`（isCurrent 行 `scrollIntoView` 与胶片条联动）、右键同图标档文件操作菜单；勾选行底色 `bg-sky-600/15`。
+
 ---
 
 ## 3. 状态管理（`src/store/appStore.ts`，zustand 单一 store）
 
 **state 分组**：
 - 目录与列表：`providerKind, dir, loading, loadError, images, recursive, currentPath, treeChildren, treeExpanded, ancestors`
-- 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize`；勾选/剪贴板：`checked, clipboard`
+- 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize, browseMode`；勾选/剪贴板：`checked, clipboard`
 - 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell, physicalFullscreen`
 - A/B：`slotA, slotB, activeSlot, compareLayout, sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
 - 网格：`gridIds, gridActiveIdx, gridSync, gridLayout, gridTransforms`；单图：`singleTransform`
 - 开关：`navScope, resample, infoVisible, histoVisible, sidebarOpen, filmstripOpen, helpOpen`
 - 收藏/取样：`favorites({path,addedAt}[]), samples(SampleRecord[]，≤10 条，seq 自增)`
 
-**Action 分组**：打开/扫描（`openDirectory/openPath/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
+**Action 分组**：打开/扫描（`openDirectory/openPath/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/navigateUp/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize/setBrowseMode`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
 
-**导出辅助**：`newTransform()`、`getVisibleImages(q)`（scopeOk + 格式过滤 + 排序）、`getNavList(q)`（再按 navScope==='checked' 过滤）、`preloadCurrentContext(s)`（内部：按当前视图预解码——compare=[A,B]、grid=全部格、single=当前±1）。
+**导出辅助**：`newTransform()`、`getVisibleImages(q)`（scopeOk + 格式过滤 + 排序）、`getNavList(q)`（再按 navScope==='checked' 过滤）、`preloadCurrentContext(s)`（内部：按当前视图预解码——compare=[A,B]、grid=全部格、single=当前±1）、`BROWSE_MODE_SIZE`（图标三档固定尺寸映射）。
 
-**持久化键**（localStorage）：`twinview.favorites / .splitRatio / .wipeRatio / .resample / .navScope / .compareLayout / .histoVisible / .debugCache`（调试开关）。`freshState(dir, images)` 在打开/重扫时重置浏览状态但**保留全部偏好**。
+**持久化键**（localStorage）：`twinview.favorites / .splitRatio / .wipeRatio / .resample / .navScope / .compareLayout / .histoVisible / .browseMode / .debugCache`（调试开关）。`freshState(dir, images)` 在打开/重扫时重置浏览状态但**保留全部偏好**。dev 构建下 store 暴露为 `window.__twinviewStore`（冒烟 UI 自动化与控制台调试；生产构建由 Rollup 消除）。
 
 ---
 
 ## 4. 数据流：打开文件夹 → 看图
 
 1. `openDirectory()` → `provider.pickDirectory()` → `listImages(dir, recursive=true)`（**始终递归全扫**，「含子文件夹」只是视野开关）→ `revokeAll()` + `clearDecodeSession()` + `clearProbeCache()` → `set(freshState(...))` → `loadAncestors()`。
-2. Sidebar 根层预载 `loadTreeChildren('')`；展开节点懒加载（Electron `list-dirs` IPC / FS Access `fsAccessChildren` / 回退 `fallbackChildren` 反推）。
-3. `getVisibleImages`（视野 = currentPath + recursive，`scopeOk` 支持根内相对与祖先绝对路径）→ ThumbnailGrid / Filmstrip（IntersectionObserver 懒加载 `<img src=getUrl()>`）；`getNavList` 供 ←/→ 与对比导航。
+2. Sidebar 根层预载 `loadTreeChildren('')`；展开节点懒加载（Electron `list-dirs` IPC / FS Access `fsAccessChildren` / 回退 `fallbackChildren` 反推）。ThumbnailGrid 对 `currentPath` 同样懒加载一层子目录（文件夹卡片数据源）。
+3. `getVisibleImages`（视野 = currentPath + recursive，`scopeOk` 支持根内相对与祖先绝对路径）→ ThumbnailGrid（**文件夹条目在前 + 图片**，图标四档/列表，IntersectionObserver 懒加载 `<img src=getUrl()>`）/ Filmstrip；`getNavList` 供 ←/→ 与对比导航（**仅图片，不含文件夹**）。
 4. `enterSingle / startCompareFromChecked / setViewMode` → `preloadCurrentContext` 预解码 → ViewerPane 帧交换上屏（命中当帧、未中保旧帧）。
 5. 文件操作（右键）→ file-ops（IPC 或句柄）→ `rescan()` 刷新。
 6. App 层：`navIds` 变化 → `reconcileNav(prevIds)` 把掉出集合的 currentId/slotA/slotB 夹回集合内最近项。
@@ -158,7 +171,9 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **技术债**：
 - `template-info.md` 为脚手架模板遗留，可删；
-- 缩略图 / 胶片条 `<img>` 直读 `entry.getUrl()`，不经 decode-cache（小图可接受）；
+- 缩略图 / 胶片条 / 列表小图 `<img>` 直读 `entry.getUrl()`，不经 decode-cache（小图可接受）；
+- 列表模式 `dimsCache`（像素尺寸）为无上限模块级 Map（仅存 w/h 数值，会话内增长可忽略）；
+- `folderEntries` 为 O(图片数 × 本层子文件夹数) 的前缀归属遍历，单目录子文件夹极多（数百）时需优化；
 - `copyNameOf` 在主进程与 `file-ops.ts` 双份实现，改动需同步；
 - ViewerPane 的 effect 依赖 `layerKey` 字符串（配合 eslint-disable 注释），改 layers 语义时注意；
 - 冒烟 `capturePage` 偶发 `UnknownVizError`（已内置 3 次重试）；
@@ -166,7 +181,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **排错指引**：
 - 解码缓存行为：`localStorage.twinview.debugCache='1'` → console 看 命中/未命中/入缓存/淘汰/预算；
-- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
+- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、**UI 自动化：openPath 打开测试目录后断言子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 后面包屑段数与 `navigateUp()` 回根**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
 - `twinview://` 在 file:// 页面 fetch 失败是**预期**（Chromium 限制）；分析层必须走 `read-file-buffer` → blob，否则 canvas 被污染（`getImageData` 抛 SecurityError）；
 - 黑闪/闪屏类问题：先看 ViewerPane 帧模型（stale 判定、finish 时机、pin 平衡），再看 CanvasSmooth 防抖分流。
 
