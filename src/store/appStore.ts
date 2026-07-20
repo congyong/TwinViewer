@@ -216,7 +216,7 @@ export interface AppState {
   resample: ResampleMode
   infoVisible: boolean
   histoVisible: boolean
-  /** 视图级全屏标记：'single' | 'compare' | 'grid' | null（全屏对象 = 当前视图控件整体，不再单格化） */
+  /** 控件内单格全屏标记：'single' | 'A' | 'B' | 网格格索引 string | null（双击链/F 进入；物理全屏可叠加其上） */
   fullscreenCell: string | null
   physicalFullscreen: boolean
   sidebarOpen: boolean
@@ -285,6 +285,8 @@ export interface AppState {
   toggleInfo: () => void
   toggleHisto: () => void
   setFullscreenCell: (cell: string | null) => void
+  /** 双击三层交互链（对比/网格/单图控件全屏中）：L0→L1 控件全屏 → L2 物理全屏 → L3 循环切换显示源 */
+  fullscreenDblClick: (cell: string) => void
   togglePhysicalFullscreen: () => Promise<void>
   addSample: (s: Omit<SampleRecord, 'seq'>) => void
   clearSamples: () => void
@@ -876,6 +878,32 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }),
 
   setFullscreenCell: (cell) => set({ fullscreenCell: cell }),
+
+  /**
+   * 双击三层交互链（第九轮恢复，作用于被双击的视图格）：
+   * L0 原布局 →（双击格 / F）→ L1 单格控件全屏（fullscreenCell=该格）
+   * L1 →（双击）→ L2 物理全屏（Fullscreen API，fullscreenCell 保持）
+   * L2 →（双击）→ L3 循环切换全屏显示源：对比 A↔B、网格下一格（**槽位/网格内容本身不变**，只改显示哪一格；单图无源可切，无操作）
+   * Esc 逐层退回见 useKeyboard（physical → fullscreenCell → browse）。
+   */
+  fullscreenDblClick: (cell) => {
+    const s = get()
+    if (s.physicalFullscreen) {
+      if (s.viewMode === 'compare') {
+        set({ fullscreenCell: s.fullscreenCell === 'A' ? 'B' : 'A' })
+      } else if (s.viewMode === 'grid' && s.gridIds.length > 0) {
+        const cur = parseInt(s.fullscreenCell ?? '', 10)
+        const base = Number.isNaN(cur) ? -1 : cur
+        set({ fullscreenCell: String((base + 1) % s.gridIds.length) })
+      }
+      return
+    }
+    if (s.fullscreenCell) {
+      void get().togglePhysicalFullscreen()
+      return
+    }
+    set({ fullscreenCell: cell })
+  },
 
   togglePhysicalFullscreen: async () => {
     try {

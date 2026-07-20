@@ -157,10 +157,11 @@
 - **dev 用法**：`npm run electron:cli -- <args>`（package.json 脚本 = `wait-on http://localhost:7100 && electron . --`）；`npm run electron:dev -- <args>` 不透传（concurrently 把参数当自身位置参数）。
 - **Kimi Work skill**：注册位置 `daimon-share/daimon/skills/twinview/SKILL.md` + 仓库副本 `skills/twinview/SKILL.md`，**两处内容需同步**（规约第 7 条）。
 
-### 2.11 全屏策略、真全屏布局与槽位导航（App.tsx / appStore.navigate）
+### 2.11 全屏策略、真全屏布局与槽位导航（App.tsx / appStore.navigate / fullscreenDblClick）
 
-- **视图级全屏（第八轮起）**：`fullscreenCell` 语义 = `'single' | 'compare' | 'grid'`，全屏对象是**当前视图控件整体**（不再单格化）——对比全屏连同当前布局（wipe/并排/叠化，分割线/分隔条仍可交互），网格全屏保留全部宫格；进入后图像数量与布局不变。F / 双击进入退出（ViewerPane `onToggleFullscreen`），App 层 `hideChrome = fullscreenCell !== null`（隐藏侧栏+胶片条，工具栏保留）；全屏时视图根叠加 `FullscreenMiniBar`（`[data-minibar]`）。**第八轮前**是单格全屏（'A'/'B'/格索引），双击 pane 会单格化——已移除（用户反馈不要单击/双击改变显示几台图）。ViewerPane 根带 `[data-view-pane]` 供冒烟计数。
-- **物理全屏 = 真全屏**：`physicalFullscreen=true` 时 App 层**卸载**工具栏（`[data-chrome="toolbar"]`）、侧栏（`<aside>`）、胶片条（`[data-chrome="filmstrip"]`）——不修改 `sidebarOpen/filmstripOpen` 本身，退出后**自然恢复**原面板可见性；保留图像 + InfoOverlay/直方图（若开启）+ 悬浮迷你条（含「退出物理全屏」按钮）。`fullscreenchange` 事件同步 store（Esc 退出同样恢复布局）。Shift+F 在 single/compare/grid 可用；未在控件内全屏时先补标 `fullscreenCell = viewMode`（保证迷你条与 hideChrome 生效），Esc 退出顺序：物理全屏 → 视图级全屏 → 浏览。
+- **双击三层交互链（第九轮恢复，单格语义）**：`fullscreenCell` 恢复单格语义 = `'single' | 'A' | 'B' | 格索引 string | null`。新增 action `fullscreenDblClick(cell)` 实现状态机：**L0** 原布局 →（双击格 / F）→ **L1** 单格控件全屏（`fullscreenCell=该格`，App 层 `hideChrome` 隐藏侧栏+胶片条，视图切单格分支：单 ViewerPane + InfoOverlay + `FullscreenMiniBar`）→（双击）→ **L2** 物理全屏（Fullscreen API，`fullscreenCell` 保持）→（双击）→ **L3** 循环切换全屏显示源：对比 A↔B、网格格索引 +1 循环（**槽位 / 格组内容本身不变**，只切显示哪一格；单图无源可切，L3 无操作——单图双击仍是适应 ↔ 100%）。wipe/叠加组合格双击 = `fullscreenDblClick(activeSlot)`（进激活槽单图）。Esc 顺序不变：physical → fullscreenCell → browse。**第八轮的"视图级全屏"（'compare'/'grid' 整控件全屏）已移除**（用户要求恢复经典双击链）。
+- **F / Shift+F**：F = 单图 / 对比激活格 / 网格当前格的控件全屏开关（即链的 L1，`setFullscreenCell` 往返）；Shift+F = 当前视图整体直进物理全屏（不补标 fullscreenCell）。**物理全屏且无 fullscreenCell 时**（Shift+F 直进），由各视图**普通分支**渲染 `FullscreenMiniBar` 提供退出入口（SingleView/CompareView/CompareGrid 均已加 `{physicalFullscreen && <FullscreenMiniBar … onExit={() => setFullscreenCell(null)} />}`）。
+- **物理全屏 = 真全屏**：`physicalFullscreen=true` 时 App 层**卸载**工具栏（`[data-chrome="toolbar"]`）、侧栏（`<aside>`）、胶片条（`[data-chrome="filmstrip"]`）——不修改 `sidebarOpen/filmstripOpen` 本身，退出后**自然恢复**原面板可见性；保留图像 + InfoOverlay/直方图（若开启）+ 悬浮迷你条（含「退出物理全屏」按钮）。`fullscreenchange` 事件同步 store（Esc 退出同样恢复布局）。ViewerPane 根带 `[data-view-pane]` 供冒烟计数；`fullscreenDblClick` 的 grid L3 分支对 `parseInt(fullscreenCell)` NaN 取 base=-1（下一格为 0）。
 - **对比/网格 ←/→ 槽位导航**：`navigate(delta)` 内 `stepIdSkipping(id, skip)` 泛化第五轮的 stepIdSkip——对比模式作用于**激活槽位**（优先跳过另一槽占据项），网格模式作用于**激活格**（优先跳过其他格占据项）；**跳过后无目标时回退为不跳过**（`stepId` 正常步进，允许与另一槽/其他格同图，如仅勾选 2 张占满 A/B）；集合仅 1 张且当前就在该图时静默 noop（无提示）。导航范围由 `getNavList` 遵循「全部/仅勾选」。网格分支**直接写 gridIds** 而非 `setGridCellImage`——后者对「目标已在其他格」做交换（胶片条指派语义），回退同图场景需允许重复；正常跳过路径下两者等价。
 - **showNotice 机制保留**：`notice` state + `showNotice(msg)`（3s 模块级计时器自动消失，App 根 `[data-notice]` 浮签）当前无调用方，留作后续一次性提示通道。X 交换、N 下一对/下一组不变。
 
@@ -172,7 +173,7 @@
 - 目录与列表：`providerKind, dir, loading, loadError, images, recursive, currentPath, treeChildren, treeExpanded, ancestors`
 - 打开对话框：`openFolderDialogOpen`（Electron 自绘对话框）
 - 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize, browseMode`；勾选/剪贴板：`checked, clipboard`
-- 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell('single'|'compare'|'grid'，视图级全屏), physicalFullscreen`
+- 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell('single'|'A'|'B'|格索引，单格控件全屏), physicalFullscreen`
 - 提示：`notice`（一次性操作提示，showNotice 设置，3s 自动消失；当前无调用方，机制保留）
 - A/B：`slotA, slotB, activeSlot, compareLayout, sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
 - 网格：`gridIds, gridActiveIdx, gridSync, gridLayout, gridTransforms`；单图：`singleTransform`
@@ -234,7 +235,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **排错指引**：
 - 解码缓存行为：`localStorage.twinview.debugCache='1'` → console 看 命中/未命中/入缓存/淘汰/预算；
-- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview 递归 count=10+4 张 + shallow 本层 count=8/dirs 含 sub/缩略图无子目录）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、**真全屏布局（physicalFullscreen 状态级模拟：`[data-chrome]`/aside 全隐藏 → 恢复）+ 槽位导航（仅勾选占满时回退同图+无 notice、全部档步进跳过另一槽、激活侧切换步进、swap 回归、网格跳过占据格+网格回退同图）+ 全屏策略（对比并排全屏 `[data-view-pane]`×2+分隔条+`[data-minibar]`+chrome 隐藏、物理叠加卸载工具栏、退出恢复；网格 4 图全屏 ×4）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
+- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview 递归 count=10+4 张 + shallow 本层 count=8/dirs 含 sub/缩略图无子目录）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、**真全屏布局（physicalFullscreen 状态级模拟：`[data-chrome]`/aside 全隐藏 → 恢复）+ 槽位导航（仅勾选占满时回退同图+无 notice、全部档步进跳过另一槽、激活侧切换步进、swap 回归、网格跳过占据格+网格回退同图）+ 视图级物理全屏 a.9（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + `[data-minibar]` + chrome 全卸载，退出恢复）+ 双击三层链 a.10（事件级 dblclick 进 L1 单格全屏；action 触发物理请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 '0'→'1'→'2' 格组不变；退出 chrome 恢复）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
 - `twinview://` 在 file:// 页面 fetch 失败是**预期**（Chromium 限制）；分析层必须走 `read-file-buffer` → blob，否则 canvas 被污染（`getImageData` 抛 SecurityError）；
 - 黑闪/闪屏类问题：先看 ViewerPane 帧模型（stale 判定、finish 时机、pin 平衡），再看 CanvasSmooth 防抖分流。
 

@@ -22,6 +22,8 @@ export function SingleView() {
   const infoVisible = useAppStore((s) => s.infoVisible || s.histoVisible)
   const fullscreenCell = useAppStore((s) => s.fullscreenCell)
   const setFullscreenCell = useAppStore((s) => s.setFullscreenCell)
+  const physicalFullscreen = useAppStore((s) => s.physicalFullscreen)
+  const fullscreenDblClick = useAppStore((s) => s.fullscreenDblClick)
 
   const [meta, setMeta] = useState<{ w: number; h: number } | null>(null)
   const [effZoom, setEffZoom] = useState(1)
@@ -55,7 +57,7 @@ export function SingleView() {
     )
   }
 
-  // 应用内单图全屏（F 进入，Esc / F / 双击退出；隐藏侧栏与胶片条由 App 控制）
+  // 单图控件全屏（双击 / F 进入；双击→物理全屏，物理中双击无第三层；Esc / F 退出）
   if (fullscreenCell === 'single') {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -67,7 +69,7 @@ export function SingleView() {
             onTransformChange={setTransform}
             onMeta={(w, h) => setMeta({ w, h })}
             onEffectiveZoom={setEffZoom}
-            onToggleFullscreen={() => setFullscreenCell(null)}
+            onToggleFullscreen={() => fullscreenDblClick('single')}
             probeSlot="—"
           />
           {infoVisible && (
@@ -87,7 +89,7 @@ export function SingleView() {
           zoom={effZoom}
           index={Math.max(0, index)}
           total={navList.length}
-          extra="全屏"
+          extra="控件全屏（双击→物理全屏）"
         />
       </div>
     )
@@ -114,6 +116,9 @@ export function SingleView() {
             index={Math.max(0, index)}
             total={navList.length}
           />
+        )}
+        {physicalFullscreen && (
+          <FullscreenMiniBar name={entry.name} onExit={() => setFullscreenCell(null)} />
         )}
       </div>
       <StatusBar

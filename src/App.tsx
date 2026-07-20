@@ -79,7 +79,7 @@ export default function App() {
   }, [])
 
   const hasImages = images.length > 0
-  // 视图级全屏（F/双击，'single'|'compare'|'grid'）：隐藏侧栏与胶片条，全屏对象 = 当前视图控件整体
+  // 单格控件全屏（双击链 L1，'single'|'A'|'B'|格索引）：隐藏侧栏与胶片条，只留该格图像
   const hideChrome = fullscreenCell !== null
   // 物理全屏 = 真全屏：卸载一切应用 chrome（工具栏/侧栏/胶片条），只留图像 + 浮层 + 悬浮迷你条。
   // 不改 sidebarOpen/filmstripOpen 本身，退出后自然恢复原面板可见性；fullscreenchange 同步保证 Esc 退出同样恢复。

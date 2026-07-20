@@ -50,6 +50,8 @@ export function CompareGrid() {
   const gridTransforms = useAppStore((s) => s.gridTransforms)
   const sharedTransform = useAppStore((s) => s.sharedTransform)
   const fullscreenCell = useAppStore((s) => s.fullscreenCell)
+  const physicalFullscreen = useAppStore((s) => s.physicalFullscreen)
+  const fullscreenDblClick = useAppStore((s) => s.fullscreenDblClick)
   // 浮层显隐 = 基本信息（I 键）或直方图（工具栏开关）任一开启
   const infoVisible = useAppStore((s) => s.infoVisible || s.histoVisible)
   const setGridActiveIdx = useAppStore((s) => s.setGridActiveIdx)
@@ -97,13 +99,61 @@ export function CompareGrid() {
   const cellOnChange = (i: number) => (t: Parameters<typeof setSharedTransform>[0]) =>
     gridSync ? setSharedTransform(t) : setGridTransform(i, t)
 
-  // 视图级全屏（F/双击）：整个网格连同当前宫格布局全屏，格数与布局不变；Esc/F/双击退出
-  const isFullscreen = fullscreenCell === 'grid'
+  // 双击三层链的单格语义：fullscreenCell 为格索引字符串（'0'..'N-1'）时该格控件全屏
+  const fsIdx =
+    fullscreenCell !== null && /^\d+$/.test(fullscreenCell) ? parseInt(fullscreenCell, 10) : -1
+  const fsEntry = fsIdx >= 0 && fsIdx < entries.length ? entries[fsIdx] : null
 
   if (entries.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-[var(--tv-text-faint)]">
         没有选中的图片 — 请在浏览模式勾选至少 3 张后点击「对比选中」
+      </div>
+    )
+  }
+
+  // L1/L2/L3：单格控件全屏（双击格 / F 进入；双击→物理全屏，物理中双击→循环切下一格，格组内容不变）
+  if (fsEntry) {
+    return (
+      <div className="relative flex h-full min-h-0 flex-col">
+        <div className="relative min-h-0 flex-1">
+          <ViewerPane
+            className="h-full"
+            layers={[
+              {
+                entry: fsEntry,
+                onMeta: (w, h) => setMetas((m) => ({ ...m, [fsEntry.id]: { w, h } })),
+              },
+            ]}
+            transform={cellTransform(fsIdx)}
+            onTransformChange={cellOnChange(fsIdx)}
+            onEffectiveZoom={(z) => setZooms((s) => ({ ...s, [fsIdx]: z }))}
+            onToggleFullscreen={() => fullscreenDblClick(String(fsIdx))}
+            probeSlot={String(fsIdx + 1)}
+          />
+          {infoVisible && (
+            <InfoOverlay
+              entry={fsEntry}
+              meta={metas[fsEntry.id] ?? null}
+              zoom={zooms[fsIdx] ?? 1}
+              index={fsIdx}
+              total={entries.length}
+            />
+          )}
+          <FullscreenMiniBar
+            label={String(fsIdx + 1)}
+            name={fsEntry.name}
+            onExit={() => setFullscreenCell(null)}
+          />
+        </div>
+        <StatusBar
+          entry={fsEntry}
+          meta={metas[fsEntry.id] ?? null}
+          zoom={zooms[fsIdx] ?? 1}
+          index={fsIdx}
+          total={entries.length}
+          extra="控件全屏（双击→物理全屏→下一格）"
+        />
       </div>
     )
   }
@@ -136,7 +186,7 @@ export function CompareGrid() {
               active={i === activeIdx}
               onActivate={() => setGridActiveIdx(i)}
               onEffectiveZoom={(z) => setZooms((s) => ({ ...s, [i]: z }))}
-              onToggleFullscreen={() => setFullscreenCell(isFullscreen ? null : 'grid')}
+              onToggleFullscreen={() => fullscreenDblClick(String(i))}
               probeSlot={String(i + 1)}
             />
             {infoVisible && (
@@ -152,7 +202,7 @@ export function CompareGrid() {
           </div>
         ))}
       </div>
-      {isFullscreen && (
+      {physicalFullscreen && (
         <FullscreenMiniBar name={`网格 ${entries.length} 张`} onExit={() => setFullscreenCell(null)} />
       )}
       <StatusBar
@@ -161,7 +211,7 @@ export function CompareGrid() {
         zoom={zooms[activeIdx] ?? 1}
         index={Math.max(0, activeIdx)}
         total={entries.length}
-        extra={`网格 ${entries.length} 张 · ${gridSync ? '同步' : '独立'} · 点击 / Tab / 数字键切换激活格 · F 全屏 · N 下一组${isFullscreen ? ' · 全屏' : ''}`}
+        extra={`网格 ${entries.length} 张 · ${gridSync ? '同步' : '独立'} · 点击 / Tab / 数字键切换激活格 · F 全屏 · N 下一组`}
       />
     </div>
   )

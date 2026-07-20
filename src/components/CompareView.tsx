@@ -37,6 +37,8 @@ export function CompareView() {
   const infoVisible = useAppStore((s) => s.infoVisible || s.histoVisible)
   const fullscreenCell = useAppStore((s) => s.fullscreenCell)
   const setFullscreenCell = useAppStore((s) => s.setFullscreenCell)
+  const physicalFullscreen = useAppStore((s) => s.physicalFullscreen)
+  const fullscreenDblClick = useAppStore((s) => s.fullscreenDblClick)
 
   const [metaA, setMetaA] = useState<{ w: number; h: number } | null>(null)
   const [metaB, setMetaB] = useState<{ w: number; h: number } | null>(null)
@@ -103,10 +105,48 @@ export function CompareView() {
   const onChangeA = sync ? setSharedTransform : setTransformA
   const onChangeB = sync ? setSharedTransform : setTransformB
 
-  // 视图级全屏（F/双击）：整个对比视图连同当前布局（wipe/并排/叠加）全屏，
-  // 分割线/分隔条保持可交互，图像数量与布局不变；Esc/F/双击退出
-  const isFullscreen = fullscreenCell === 'compare'
-  const toggleFs = () => setFullscreenCell(isFullscreen ? null : 'compare')
+  // L1/L2/L3：单格控件全屏（双击链进入；物理全屏叠加时 App 层 chrome 已全隐）。
+  // 双击继续走链（fullscreenDblClick：L1→物理、物理中→切换显示源 A↔B，槽位内容不变）
+  if (fullscreenCell === 'A' || fullscreenCell === 'B') {
+    const isA = fullscreenCell === 'A'
+    const fsEntry = isA ? entryA : entryB
+    const fsMeta = isA ? metaA : metaB
+    const fsZoom = isA ? zoomA : zoomB
+    const fsTransform = isA ? tA : tB
+    const fsOnChange = isA ? onChangeA : onChangeB
+    return (
+      <div className="relative flex h-full min-h-0 flex-col">
+        <div className="relative min-h-0 flex-1">
+          <ViewerPane
+            className="h-full"
+            layers={[{ entry: fsEntry, onMeta: isA ? (w, h) => setMetaA({ w, h }) : (w, h) => setMetaB({ w, h }) }]}
+            transform={fsTransform}
+            onTransformChange={fsOnChange}
+            onEffectiveZoom={isA ? setZoomA : setZoomB}
+            onToggleFullscreen={() => fullscreenDblClick(fullscreenCell)}
+            probeSlot={fullscreenCell}
+          />
+          {infoVisible && (
+            <InfoOverlay entry={fsEntry} meta={fsMeta} zoom={fsZoom} index={indexOf(fsEntry.id)} total={navList.length} />
+          )}
+          <FullscreenMiniBar
+            label={fullscreenCell}
+            labelClass={isA ? 'text-sky-400' : 'text-orange-400'}
+            name={fsEntry.name}
+            onExit={() => setFullscreenCell(null)}
+          />
+        </div>
+        <StatusBar
+          entry={fsEntry}
+          meta={fsMeta}
+          zoom={fsZoom}
+          index={Math.max(0, indexOf(fsEntry.id))}
+          total={navList.length}
+          extra="控件全屏（双击→物理全屏→切源）"
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -127,7 +167,7 @@ export function CompareView() {
                 setZoomB(z)
               }}
               wipe={{ ratio: wipeRatio, onChange: setWipeRatio }}
-              onToggleFullscreen={toggleFs}
+              onToggleFullscreen={() => fullscreenDblClick(activeSlot)}
               probeSlot={activeSlot}
               probeLayer={activeSlot === 'A' ? 0 : 1}
             />
@@ -164,7 +204,7 @@ export function CompareView() {
                 active={activeSlot === 'A'}
                 onActivate={() => activeSlot !== 'A' && toggleActiveSlot()}
                 onEffectiveZoom={setZoomA}
-                onToggleFullscreen={toggleFs}
+                onToggleFullscreen={() => fullscreenDblClick('A')}
                 probeSlot="A"
               />
               {infoVisible && (
@@ -191,7 +231,7 @@ export function CompareView() {
                 active={activeSlot === 'B'}
                 onActivate={() => activeSlot !== 'B' && toggleActiveSlot()}
                 onEffectiveZoom={setZoomB}
-                onToggleFullscreen={toggleFs}
+                onToggleFullscreen={() => fullscreenDblClick('B')}
                 probeSlot="B"
               />
               {infoVisible && (
@@ -226,7 +266,7 @@ export function CompareView() {
                 setZoomA(z)
                 setZoomB(z)
               }}
-              onToggleFullscreen={toggleFs}
+              onToggleFullscreen={() => fullscreenDblClick(activeSlot)}
               probeSlot={activeSlot}
               probeLayer={overlaySwapped ? (activeSlot === 'A' ? 1 : 0) : activeSlot === 'A' ? 0 : 1}
             />
@@ -243,8 +283,12 @@ export function CompareView() {
           </div>
         )}
       </div>
-      {isFullscreen && (
-        <FullscreenMiniBar name={`${entryA.name} × ${entryB.name}`} onExit={() => setFullscreenCell(null)} />
+      {/* Shift+F 直进的物理全屏（无单格全屏）：补悬浮迷你条退出入口 */}
+      {physicalFullscreen && (
+        <FullscreenMiniBar
+          name={`${entryA.name} × ${entryB.name}`}
+          onExit={() => setFullscreenCell(null)}
+        />
       )}
       <StatusBar
         entry={activeEntry}
@@ -252,7 +296,7 @@ export function CompareView() {
         zoom={activeZoom}
         index={Math.max(0, activeIndex)}
         total={navList.length}
-        extra={`激活侧 ${activeSlot}${compareLayout === 'side' && sync ? ' · 同步中' : ''}${isFullscreen ? ' · 全屏' : ''}`}
+        extra={`激活侧 ${activeSlot}${compareLayout === 'side' && sync ? ' · 同步中' : ''}`}
       />
     </div>
   )

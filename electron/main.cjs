@@ -629,55 +629,118 @@ async function runSmokeTest(win) {
         return fail(`真全屏/槽位导航不符预期: ${JSON.stringify(navAssert)}`)
       }
 
-      // a.9) 全屏策略：视图级全屏对象 = 当前视图控件整体（对比并排 2 pane / 网格 4 pane 均保留 + chrome 隐藏 + 迷你条）
+      // a.9) 视图级物理全屏（Shift+F 直进，无 fullscreenCell）：视图普通分支渲染悬浮迷你条，pane 布局不变，chrome 全卸载
       const fsAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
         const wait = (ms) => new Promise((r) => setTimeout(r, ms))
         const out = {}
         const S = () => store.getState()
         const panes = () => document.querySelectorAll('[data-view-pane]').length
-        const chromeVisible = () =>
-          !!document.querySelector('aside') || !!document.querySelector('[data-chrome="filmstrip"]')
+        const chromeGone = () =>
+          !document.querySelector('[data-chrome="toolbar"]') &&
+          !document.querySelector('aside') &&
+          !document.querySelector('[data-chrome="filmstrip"]')
         const ids = S().images.map((e) => e.id)
-        // 对比（并排 2 图）→ 视图级全屏：两个 pane 均在、分隔条仍渲染、侧栏/胶片条隐藏、工具栏保留、迷你条出现
-        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', checked: [], navScope: 'all' })
-        S().setFullscreenCell('compare')
-        await wait(350)
-        out.cmpPanes = panes()
-        out.cmpDivider = !!document.querySelector('.cursor-col-resize')
-        out.cmpMinibar = !!document.querySelector('[data-minibar]')
-        out.cmpChromeHidden = !chromeVisible()
-        out.cmpToolbarKept = !!document.querySelector('[data-chrome="toolbar"]')
-        // 叠加物理全屏：工具栏也卸载，pane 数不变；退出恢复
+        // 对比（并排 2 图）→ 物理全屏（无单格）：2 pane 均在 + 迷你条出现 + chrome 全隐
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', fullscreenCell: null, checked: [], navScope: 'all' })
+        await wait(300)
+        out.before = { panes: panes(), minibar: !!document.querySelector('[data-minibar]') }
         store.setState({ physicalFullscreen: true })
-        await wait(250)
-        out.physicalHidesToolbar = !document.querySelector('[data-chrome="toolbar"]') && panes() === 2
+        await wait(300)
+        out.cmpPanes = panes()
+        out.cmpMinibar = !!document.querySelector('[data-minibar]')
+        out.cmpChromeGone = chromeGone()
         store.setState({ physicalFullscreen: false })
+        await wait(300)
+        out.cmpRestored = !!document.querySelector('[data-chrome="toolbar"]') && !!document.querySelector('aside') && panes() === 2
+        // 网格 4 图 → 物理全屏：4 个 pane 均在 + 迷你条
+        store.setState({ viewMode: 'grid', gridIds: [ids[0], ids[1], ids[2], ids[3]], gridActiveIdx: 0, fullscreenCell: null })
         await wait(250)
-        // 退出控件内全屏 → chrome 恢复、仍是 2 pane
-        S().setFullscreenCell(null)
-        await wait(250)
-        out.cmpRestored = chromeVisible() && panes() === 2
-        // 网格 4 图 → 视图级全屏：4 个 pane 均在
-        store.setState({ viewMode: 'grid', gridIds: [ids[0], ids[1], ids[2], ids[3]], gridActiveIdx: 0 })
-        S().setFullscreenCell('grid')
-        await wait(350)
+        store.setState({ physicalFullscreen: true })
+        await wait(300)
         out.gridPanes = panes()
         out.gridMinibar = !!document.querySelector('[data-minibar]')
-        out.gridChromeHidden = !chromeVisible()
-        S().setFullscreenCell(null)
+        out.gridChromeGone = chromeGone()
+        store.setState({ physicalFullscreen: false })
         store.setState({ viewMode: 'browse', gridIds: [] })
         S().setViewMode('browse')
         await wait(200)
-        out.ok = out.cmpPanes === 2 && out.cmpDivider && out.cmpMinibar && out.cmpChromeHidden &&
-          out.cmpToolbarKept && out.physicalHidesToolbar && out.cmpRestored &&
-          out.gridPanes === 4 && out.gridMinibar && out.gridChromeHidden
+        out.ok = out.before.panes === 2 && !out.before.minibar &&
+          out.cmpPanes === 2 && out.cmpMinibar && out.cmpChromeGone && out.cmpRestored &&
+          out.gridPanes === 4 && out.gridMinibar && out.gridChromeGone
         return out
       })()`)
-      console.log(`[SMOKE] 全屏策略: ${JSON.stringify(fsAssert)}`)
+      console.log(`[SMOKE] 视图级物理全屏: ${JSON.stringify(fsAssert)}`)
       if (!fsAssert.ok) {
         clearTimeout(killer)
-        return fail(`全屏策略不符预期: ${JSON.stringify(fsAssert)}`)
+        return fail(`视图级物理全屏不符预期: ${JSON.stringify(fsAssert)}`)
+      }
+
+      // a.10) 双击三层交互链：L0 双击格→L1 控件全屏（事件级）；L1 双击→L2 物理全屏（action 触发请求 + 状态级模拟）；
+      //       L2 双击→L3 循环切显示源（对比 A↔B 槽位内容不变；网格下一格格组不变）；退出后 chrome 恢复
+      const chainAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        const panes = () => document.querySelectorAll('[data-view-pane]').length
+        const ids = S().images.map((e) => e.id)
+        // --- 对比 side：真实 dblclick 事件进 L1 ---
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', activeSlot: 'A', fullscreenCell: null, physicalFullscreen: false, checked: [], navScope: 'all' })
+        await wait(300)
+        const paneA = document.querySelector('[data-view-pane]')
+        paneA.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+        await wait(300)
+        out.dblL1 = S().fullscreenCell === 'A' && panes() === 1
+        // --- L1→L2：action 触发物理全屏请求（headless 下只报告结果，不断言）---
+        S().fullscreenDblClick('A')
+        await wait(300)
+        out.physicalRequested = S().physicalFullscreen // 报告值；headless 可能被拒
+        store.setState({ physicalFullscreen: true }) // 状态级模拟 L2
+        await wait(300)
+        // --- L2→L3：双击 = 切显示源 A→B→A，槽位内容不变，迷你条在 ---
+        const slotABefore = [S().slotA, S().slotB]
+        S().fullscreenDblClick('A')
+        await wait(250)
+        out.l3toB = S().fullscreenCell === 'B'
+        S().fullscreenDblClick('B')
+        await wait(250)
+        out.l3toA = S().fullscreenCell === 'A'
+        out.slotsKept = S().slotA === slotABefore[0] && S().slotB === slotABefore[1]
+        out.l3Minibar = !!document.querySelector('[data-minibar]') && panes() === 1
+        // --- 退出：physical false + fullscreenCell null → chrome 恢复、2 pane ---
+        store.setState({ physicalFullscreen: false })
+        S().setFullscreenCell(null)
+        await wait(300)
+        out.exited = S().fullscreenCell === null && panes() === 2 && !!document.querySelector('aside')
+        // --- 网格 3 格：action 进 L1=格'0'；L2 中双击 → '1'→'2'，gridIds 内容不变 ---
+        const g = [ids[0], ids[1], ids[2]]
+        store.setState({ viewMode: 'grid', gridIds: g.slice(), gridActiveIdx: 0, fullscreenCell: null, physicalFullscreen: false })
+        await wait(250)
+        S().fullscreenDblClick('0')
+        await wait(250)
+        out.gridL1 = S().fullscreenCell === '0' && panes() === 1
+        store.setState({ physicalFullscreen: true })
+        await wait(250)
+        S().fullscreenDblClick('0')
+        await wait(200)
+        out.gridL3a = S().fullscreenCell === '1'
+        S().fullscreenDblClick('1')
+        await wait(200)
+        out.gridL3b = S().fullscreenCell === '2'
+        out.gridIdsKept = S().gridIds.length === 3 && S().gridIds.every((id, i) => id === g[i])
+        // 复位
+        store.setState({ physicalFullscreen: false, fullscreenCell: null, viewMode: 'browse', gridIds: [] })
+        S().setViewMode('browse')
+        await wait(200)
+        out.ok = out.dblL1 && out.l3toB && out.l3toA && out.slotsKept && out.l3Minibar &&
+          out.exited && out.gridL1 && out.gridL3a && out.gridL3b && out.gridIdsKept
+        return out
+      })()`)
+      console.log(`[SMOKE] 双击三层链: ${JSON.stringify(chainAssert)}`)
+      if (!chainAssert.ok) {
+        clearTimeout(killer)
+        return fail(`双击三层链不符预期: ${JSON.stringify(chainAssert)}`)
       }
 
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
