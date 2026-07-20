@@ -38,6 +38,12 @@ contextBridge.exposeInMainWorld('twinview', {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   /** 拖放粘贴：递归复制文件/目录到目标目录（重名自动副本），返回 {ok, failed} */
   copyInto: (sources, targetDir) => ipcRenderer.invoke('copy-into', sources, targetDir),
+  /** 录制：本窗口 desktopCapturer 源 id */
+  getWindowSourceId: () => ipcRenderer.invoke('get-window-source-id'),
+  /** 录制：保存对话框，返回绝对路径或 null */
+  recSaveDialog: (defaultName, extLabel, ext) => ipcRenderer.invoke('rec-save-dialog', defaultName, extLabel, ext),
+  /** 录制：写二进制文件，返回 {ok, error?} */
+  writeBinaryFile: (path, data) => ipcRenderer.invoke('write-binary-file', path, data),
   platform: process.platform,
   versions: {
     electron: process.versions.electron,

@@ -25,9 +25,20 @@ import type {
   ThemeMode,
 } from '@/lib/settings'
 import { applyTheme } from '@/lib/theme'
+import {
+  clearSession,
+  discardCapture,
+  encodeGif,
+  gifFrameCount,
+  startCapture,
+  stopCapture,
+  REC_MAX_SECONDS,
+  type RecQuality,
+} from '@/lib/recorder'
 
 export type ViewMode = 'browse' | 'single' | 'compare' | 'grid'
 export type { BrowseMode, CompareLayout, DiffColormap, NavScope, ResampleMode, SortKey, ThemeMode }
+export type { RecQuality } from '@/lib/recorder'
 export type GridLayout = 'auto' | '1x2' | '2x1' | '2x2' | '3x2' | '2x3' | '3x3'
 export type ProviderKind = 'browser' | 'electron'
 
@@ -235,6 +246,16 @@ export interface AppState {
   diffTolerance: number
   /** D 键切 diff 前的布局（退出 diff 时还原；会话级不持久化） */
   diffPrevLayout: CompareLayout
+  /** 录制状态机：idle→starting(倒计时)→recording→stopping(倒计时)→saving→idle */
+  recPhase: 'idle' | 'starting' | 'recording' | 'stopping' | 'saving'
+  recCountdown: number
+  /** 录制进行秒数（徽标计时） */
+  recElapsed: number
+  /** 实际视频容器（'' = MediaRecorder 不可用，仅 GIF 可出） */
+  recMime: string
+  recBlob: Blob | null
+  recFormat: 'video' | 'gif'
+  recQuality: RecQuality
 
   openDirectory: () => Promise<void>
   openPath: (path: string) => Promise<void>
@@ -280,6 +301,16 @@ export interface AppState {
   toggleDiffLayout: () => void
   setDiffColormap: (m: DiffColormap) => void
   setDiffTolerance: (v: number) => void
+  /** S 键 / 工具栏按钮：录制开关（idle→倒计时开始；录制中→倒计时停止；倒计时内再按取消） */
+  toggleRecord: () => void
+  beginCapture: () => Promise<void>
+  finalizeCapture: () => Promise<void>
+  setRecFormat: (f: 'video' | 'gif') => void
+  setRecQuality: (q: RecQuality) => void
+  saveRecording: () => Promise<void>
+  cancelSave: () => void
+  /** 视图切换 / 卸载：录制中一律停止并释放资源 */
+  stopRecordingCleanup: () => void
   setSync: (v: boolean) => void
   setSplitRatio: (v: number) => void
   setWipeRatio: (v: number) => void
@@ -316,6 +347,20 @@ export interface AppState {
 
 /** showNotice 自动消失计时器（模块级单例） */
 let noticeTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 录制：倒计时 tick / 计时徽标 / 时长上限计时器（模块级单例） */
+let recTickTimer: ReturnType<typeof setInterval> | null = null
+let recElapsedTimer: ReturnType<typeof setInterval> | null = null
+let recMaxTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearRecTimers(): void {
+  if (recTickTimer !== null) clearInterval(recTickTimer)
+  if (recElapsedTimer !== null) clearInterval(recElapsedTimer)
+  if (recMaxTimer !== null) clearTimeout(recMaxTimer)
+  recTickTimer = null
+  recElapsedTimer = null
+  recMaxTimer = null
+}
 
 export const useAppStore = create<AppState>()((set, get) => ({
   providerKind: getFSProvider().kind,
@@ -372,6 +417,13 @@ export const useAppStore = create<AppState>()((set, get) => ({
   diffColormap: settings.diffColormap,
   diffTolerance: settings.diffTolerance,
   diffPrevLayout: settings.compareLayout === 'diff' ? 'side' : settings.compareLayout,
+  recPhase: 'idle',
+  recCountdown: 0,
+  recElapsed: 0,
+  recMime: '',
+  recBlob: null,
+  recFormat: 'video',
+  recQuality: 'medium',
 
   openDirectory: async () => {
     const provider = getFSProvider()
@@ -615,6 +667,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   setViewMode: (mode) => {
     const prev = get().viewMode
+    get().stopRecordingCleanup() // 视图切换：录制中一律停止并释放
     if (mode === 'compare') get().ensureSlots()
     if (mode === 'single' && !get().currentId) {
       const nav = getNavList(get())
@@ -858,6 +911,139 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const t = Math.min(128, Math.max(0, Math.round(v)))
     updateSettings({ diffTolerance: t })
     set({ diffTolerance: t })
+  },
+
+  toggleRecord: () => {
+    const phase = get().recPhase
+    if (phase === 'idle') {
+      // 开始倒计时（3s，叠显示区中央悬浮胶囊；倒计时内再按 S 取消）
+      clearRecTimers()
+      set({ recPhase: 'starting', recCountdown: 3 })
+      recTickTimer = setInterval(() => {
+        const c = get().recCountdown
+        if (c <= 1) {
+          if (recTickTimer !== null) clearInterval(recTickTimer)
+          recTickTimer = null
+          void get().beginCapture()
+        } else {
+          set({ recCountdown: c - 1 })
+        }
+      }, 1000)
+    } else if (phase === 'starting') {
+      // 开始倒计时内取消
+      clearRecTimers()
+      set({ recPhase: 'idle', recCountdown: 0 })
+    } else if (phase === 'recording') {
+      // 停止倒计时（期间继续录；倒计时内再按 S 取消停止）
+      if (recTickTimer !== null) clearInterval(recTickTimer)
+      set({ recPhase: 'stopping', recCountdown: 3 })
+      recTickTimer = setInterval(() => {
+        const c = get().recCountdown
+        if (c <= 1) {
+          if (recTickTimer !== null) clearInterval(recTickTimer)
+          recTickTimer = null
+          void get().finalizeCapture()
+        } else {
+          set({ recCountdown: c - 1 })
+        }
+      }, 1000)
+    } else if (phase === 'stopping') {
+      // 取消停止 → 回到录制中
+      if (recTickTimer !== null) clearInterval(recTickTimer)
+      recTickTimer = null
+      set({ recPhase: 'recording', recCountdown: 0 })
+    }
+    // saving 中 S 无效（对话框操作）
+  },
+
+  beginCapture: async () => {
+    try {
+      const { mime } = await startCapture(get().recQuality)
+      set({ recPhase: 'recording', recCountdown: 0, recMime: mime, recElapsed: 0 })
+      recElapsedTimer = setInterval(() => set({ recElapsed: get().recElapsed + 1 }), 1000)
+      recMaxTimer = setTimeout(() => {
+        if (get().recPhase === 'recording' || get().recPhase === 'stopping') {
+          get().showNotice('录制已达 10 分钟上限，自动停止')
+          void get().finalizeCapture()
+        }
+      }, REC_MAX_SECONDS * 1000)
+    } catch (err) {
+      set({ recPhase: 'idle', recCountdown: 0 })
+      get().showNotice(`录制启动失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+
+  finalizeCapture: async () => {
+    if (recElapsedTimer !== null) clearInterval(recElapsedTimer)
+    if (recMaxTimer !== null) clearTimeout(recMaxTimer)
+    recElapsedTimer = null
+    recMaxTimer = null
+    const { blob, mime } = await stopCapture()
+    if (blob || gifFrameCount() > 0) {
+      set({ recPhase: 'saving', recBlob: blob, recMime: mime })
+    } else {
+      clearSession()
+      set({ recPhase: 'idle', recBlob: null, recMime: '' })
+      get().showNotice('录制无输出')
+    }
+  },
+
+  setRecFormat: (f) => set({ recFormat: f }),
+  setRecQuality: (q) => set({ recQuality: q }),
+
+  saveRecording: async () => {
+    const s = get()
+    if (s.recPhase !== 'saving') return
+    const isGif = s.recFormat === 'gif'
+    try {
+      let blob: Blob | null
+      let ext: string
+      if (isGif) {
+        blob = await encodeGif(s.recQuality)
+        ext = 'gif'
+      } else {
+        blob = s.recBlob
+        ext = s.recMime.includes('mp4') ? 'mp4' : 'webm'
+      }
+      if (!blob) throw new Error('无视频输出（当前环境 MediaRecorder 不可用，可改选 GIF）')
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+      const name = `TwinView-${stamp}.${ext}`
+      if (isElectron()) {
+        const path = await window.twinview?.recSaveDialog?.(name, ext.toUpperCase(), ext)
+        if (!path) return // 用户取消路径选择：留在 saving 可重选
+        const r = await window.twinview?.writeBinaryFile?.(path, await blob.arrayBuffer())
+        if (!r || !r.ok) throw new Error(r?.error ?? '写入失败')
+        get().showNotice('录制已保存')
+      } else {
+        // 浏览器模式：只能触发下载（无法选保存位置）
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = name
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 10_000)
+        get().showNotice('已开始下载录制文件')
+      }
+      clearSession()
+      set({ recPhase: 'idle', recBlob: null, recMime: '' })
+    } catch (err) {
+      get().showNotice(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+      // 留在 saving 允许换格式重试
+    }
+  },
+
+  cancelSave: () => {
+    discardCapture()
+    clearSession()
+    set({ recPhase: 'idle', recBlob: null, recMime: '', recCountdown: 0 })
+  },
+
+  stopRecordingCleanup: () => {
+    if (get().recPhase === 'idle') return
+    clearRecTimers()
+    discardCapture()
+    clearSession()
+    set({ recPhase: 'idle', recCountdown: 0, recElapsed: 0, recBlob: null, recMime: '' })
   },
 
   setSync: (v) => {

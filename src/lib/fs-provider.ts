@@ -146,6 +146,9 @@ interface TwinviewBridge {
   dirImagePreview(dir: string, limit: number, shallow?: boolean): Promise<DirImagePreview>
   getPathForFile(file: File): string
   copyInto(sources: string[], targetDir: string): Promise<FileOpResult>
+  getWindowSourceId?(): Promise<string | null>
+  recSaveDialog?(defaultName: string, extLabel: string, ext: string): Promise<string | null>
+  writeBinaryFile?(path: string, data: Uint8Array | ArrayBuffer): Promise<{ ok: boolean; error?: string }>
   platform: string
   versions: Record<string, string>
 }

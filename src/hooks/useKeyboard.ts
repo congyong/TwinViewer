@@ -64,6 +64,11 @@ export function useKeyboard() {
         else if (s.viewMode === 'grid') s.setFullscreenCell(s.fullscreenCell ? null : String(s.gridActiveIdx))
         return
       }
+      if (key === 's') {
+        // S：录制显示区开关（倒计时开始/停止，倒计时内再按取消；保存对话框中无效）
+        s.toggleRecord()
+        return
+      }
       if (key === 'r') {
         if (s.viewMode !== 'browse') {
           s.rotateCurrent(1)

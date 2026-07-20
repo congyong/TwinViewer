@@ -5,6 +5,7 @@ import {
   ChartColumn,
   CircleHelp,
   Columns2,
+  Disc,
   Flame,
   FolderOpen,
   Grid2X2,
@@ -110,6 +111,8 @@ export function Toolbar() {
   const setDiffColormap = useAppStore((s) => s.setDiffColormap)
   const diffTolerance = useAppStore((s) => s.diffTolerance)
   const setDiffTolerance = useAppStore((s) => s.setDiffTolerance)
+  const recPhase = useAppStore((s) => s.recPhase)
+  const toggleRecord = useAppStore((s) => s.toggleRecord)
   const nextBatch = useAppStore((s) => s.nextBatch)
   const resetView = useAppStore((s) => s.resetView)
   const rotateCurrent = useAppStore((s) => s.rotateCurrent)
@@ -307,6 +310,16 @@ export function Toolbar() {
           </Button>
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="顺时针旋转 90° (R)" onClick={() => rotateCurrent(1)}>
             <RotateCw className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className={`h-7 w-7 p-0 ${recPhase === 'recording' || recPhase === 'stopping' ? 'text-red-500' : ''}`}
+            title={recPhase === 'idle' ? '录制显示区 (S)' : recPhase === 'recording' ? '停止录制 (S)' : '录制操作 (S)'}
+            data-rec-btn
+            onClick={toggleRecord}
+          >
+            <Disc className={`h-3.5 w-3.5 ${recPhase === 'recording' ? 'animate-pulse' : ''}`} />
           </Button>
         </>
       )}

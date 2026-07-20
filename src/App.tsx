@@ -7,6 +7,7 @@ import { CompareView } from '@/components/CompareView'
 import { CompareGrid } from '@/components/CompareGrid'
 import { Filmstrip } from '@/components/Filmstrip'
 import { HelpOverlay } from '@/components/HelpOverlay'
+import { RecordOverlay } from '@/components/RecordOverlay'
 import { OpenFolderDialog } from '@/components/OpenFolderDialog'
 import { EmptyState } from '@/components/EmptyState'
 import { useKeyboard } from '@/hooks/useKeyboard'
@@ -90,7 +91,7 @@ export default function App() {
       {!physical && <Toolbar />}
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && !hideChrome && !physical && <Sidebar />}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <main className="min-h-0 flex-1">
             {loading && (
               <div className="flex h-full items-center justify-center text-sm text-[var(--tv-text-dim)]">
@@ -108,6 +109,8 @@ export default function App() {
             {!loading && !loadError && hasImages && viewMode === 'compare' && <CompareView />}
             {!loading && !loadError && hasImages && viewMode === 'grid' && <CompareGrid />}
           </main>
+          {/* 录制叠层：倒计时胶囊 / 红点徽标 / 保存对话框（覆盖显示区） */}
+          <RecordOverlay />
           {filmstripOpen && hasImages && !hideChrome && !physical && <Filmstrip />}
         </div>
       </div>

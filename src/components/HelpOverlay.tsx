@@ -21,6 +21,7 @@ const SHORTCUTS: { keys: string; desc: string }[] = [
   { keys: 'X', desc: '交换 A/B' },
   { keys: 'W / G', desc: '循环对比布局（划变 → 并排 → 叠化）' },
   { keys: 'D', desc: '差值热图开关：逐像素差值 + colormap（inferno/gray/viridis/coolwarm）+ 容差 0–128（≤容差置黑），再按 D 返回之前布局' },
+  { keys: 'S', desc: '录制显示区：3 秒倒计时开始（倒计时内再按取消）；录制中再按 = 3 秒倒计时停止（期间继续录，再按取消停止）；停止后弹保存对话框（MP4/GIF + 画质档）' },
   { keys: 'N', desc: '对比：下一对（仅勾选导航且勾选 ≥4 张）；网格：下一组' },
   { keys: '?', desc: '打开 / 关闭本帮助' },
 ]

@@ -8,7 +8,7 @@
  * - IPC：select-directory（系统对话框）、scan-directory（递归扫描图片）
  * - 自定义协议 twinview://local/<encodeURIComponent(绝对路径)> 提供本地文件（免拷贝）
  */
-const { app, BrowserWindow, dialog, ipcMain, protocol, net, Menu, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, protocol, net, Menu, shell, desktopCapturer } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
 const { pathToFileURL } = require('node:url')
@@ -867,6 +867,74 @@ async function runSmokeTest(win) {
         return fail(`差值热图不符预期: ${JSON.stringify(diffAssert)}`)
       }
 
+      // a.13) 录制状态机：按钮存在 → S 开始倒计时（胶囊）→ S 取消 → 倒计时结束采集（结果报告值）→
+      //       停止倒计时（胶囊）→ 倒计时内取消 → 停止 → 保存对话框（格式/画质）→ 取消回 idle
+      const recAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        store.setState({ viewMode: 'single', currentId: S().images[0].id, fullscreenCell: null, physicalFullscreen: false })
+        await wait(300)
+        out.btnShown = !!document.querySelector('[data-rec-btn]')
+        // S 键 → 开始倒计时
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }))
+        await wait(200)
+        out.startingPhase = S().recPhase === 'starting'
+        const pill0 = document.querySelector('[data-rec-pill]')
+        out.pillShown = !!pill0 && pill0.textContent.includes('后开始录制')
+        // 倒计时内 S → 取消开始
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }))
+        await wait(200)
+        out.cancelStart = S().recPhase === 'idle'
+        // 再次开始并快进到采集（headless 下采集成败只报告不断言）
+        S().toggleRecord()
+        await wait(150)
+        store.setState({ recCountdown: 1 })
+        await wait(1600)
+        out.afterCountdown = S().recPhase
+        out.captureOk = S().recPhase === 'recording'
+        if (!out.captureOk) store.setState({ recPhase: 'recording' })
+        // 停止倒计时（期间继续录）
+        S().toggleRecord()
+        await wait(150)
+        out.stoppingPhase = S().recPhase === 'stopping'
+        const pill1 = document.querySelector('[data-rec-pill]')
+        out.stopPill = !!pill1 && pill1.textContent.includes('后停止录制')
+        // 倒计时内 S → 取消停止
+        S().toggleRecord()
+        await wait(150)
+        out.cancelStop = S().recPhase === 'recording'
+        // 再次停止并快进
+        S().toggleRecord()
+        await wait(150)
+        store.setState({ recCountdown: 1 })
+        await wait(1600)
+        out.afterStop = S().recPhase // 真会话 → 'saving'；无会话 → 'idle'
+        if (S().recPhase !== 'saving') {
+          store.setState({ recPhase: 'saving', recBlob: new Blob(['x']), recMime: 'video/mp4' })
+        }
+        await wait(300)
+        out.dialogShown = !!document.querySelector('[data-rec-save]')
+        out.formatBtns = !!document.querySelector('[data-rec-format-video]') && !!document.querySelector('[data-rec-format-gif]')
+        out.qualityBtns = document.querySelectorAll('[data-rec-quality]').length === 3
+        document.querySelector('[data-rec-cancel]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await wait(200)
+        out.cancelled = S().recPhase === 'idle' && !document.querySelector('[data-rec-save]')
+        store.setState({ viewMode: 'browse', recPhase: 'idle' })
+        S().setViewMode('browse')
+        await wait(200)
+        out.ok = out.btnShown && out.startingPhase && out.pillShown && out.cancelStart &&
+          out.stoppingPhase && out.stopPill && out.cancelStop &&
+          out.dialogShown && out.formatBtns && out.qualityBtns && out.cancelled
+        return out
+      })()`)
+      console.log(`[SMOKE] 录制状态机: ${JSON.stringify(recAssert)}`)
+      if (!recAssert.ok) {
+        clearTimeout(killer)
+        return fail(`录制状态机不符预期: ${JSON.stringify(recAssert)}`)
+      }
+
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
       await new Promise((r) => setTimeout(r, 3000))
       let image = null
@@ -1061,6 +1129,39 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   ipcMain.handle('set-window-background', async (event, color) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win && typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) win.setBackgroundColor(color)
+  })
+
+  // 录制：取本窗口的 desktopCapturer 源 id（按窗口标题匹配，找不到回退第一个窗口源）
+  ipcMain.handle('get-window-source-id', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } })
+    if (!sources || sources.length === 0) return null
+    const title = win ? win.getTitle() : ''
+    const hit = sources.find((s) => s.name === title) || sources.find((s) => s.name.includes('TwinView'))
+    return (hit || sources[0]).id
+  })
+
+  // 录制：保存对话框（默认文件名 + 格式过滤），返回绝对路径或 null（取消）
+  ipcMain.handle('rec-save-dialog', async (event, defaultName, extLabel, ext) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+    const r = await dialog.showSaveDialog(win, {
+      defaultPath: defaultName,
+      filters: [{ name: extLabel, extensions: [ext] }],
+    })
+    return r.canceled || !r.filePath ? null : r.filePath
+  })
+
+  // 录制：写二进制文件（渲染进程 blob → ArrayBuffer 经结构化克隆传入）
+  ipcMain.handle('write-binary-file', async (_event, filePath, data) => {
+    try {
+      if (typeof filePath !== 'string' || !filePath) return { ok: false, error: '路径无效' }
+      const buf = Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data))
+      await fs.writeFile(filePath, buf)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e && e.message ? e.message : e) }
+    }
   })
 
   // 「打开文件夹」对话框：常用位置快捷入口（桌面/图片/文档/下载/主目录 + 盘符）
