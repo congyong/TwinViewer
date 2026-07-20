@@ -713,6 +713,20 @@ async function runSmokeTest(win) {
         S().setFullscreenCell(null)
         await wait(300)
         out.exited = S().fullscreenCell === null && panes() === 2 && !!document.querySelector('aside')
+        // --- L1 控件全屏下 X 切显示源（槽位互换+激活侧翻转）后 ←/→ 仍对**显示槽**生效 ---
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', activeSlot: 'A', fullscreenCell: 'A', physicalFullscreen: false })
+        await wait(250)
+        S().swapSlots() // X：显示格 'A' 现显示原 B 图；activeSlot 翻转为 'B'
+        await wait(100)
+        out.xSwapKept = S().slotA === ids[1] && S().slotB === ids[0] && S().activeSlot === 'B' && S().fullscreenCell === 'A'
+        S().navigate(1) // 应作用于显示槽 A（ids[1]）→ 跳过 slotB=ids[0] → ids[2]
+        await wait(100)
+        out.navAfterX = S().slotA === ids[2] && S().slotB === ids[0]
+        S().navigate(-1) // 回退到 ids[1]
+        await wait(100)
+        out.navBackAfterX = S().slotA === ids[1] && S().slotB === ids[0]
+        store.setState({ fullscreenCell: null })
+        await wait(150)
         // --- 网格 3 格：action 进 L1=格'0'；L2 中双击 → '1'→'2'，gridIds 内容不变 ---
         const g = [ids[0], ids[1], ids[2]]
         store.setState({ viewMode: 'grid', gridIds: g.slice(), gridActiveIdx: 0, fullscreenCell: null, physicalFullscreen: false })
@@ -729,12 +743,17 @@ async function runSmokeTest(win) {
         await wait(200)
         out.gridL3b = S().fullscreenCell === '2'
         out.gridIdsKept = S().gridIds.length === 3 && S().gridIds.every((id, i) => id === g[i])
+        // --- 网格 L1 显示格='2'（gridActiveIdx 仍为 0）时 ←/→ 作用于显示格 ---
+        S().navigate(1) // 显示格 ids[2] → 跳过格0/格1 → ids[3]
+        await wait(100)
+        out.gridNavAfterL3 = S().gridIds[2] === ids[3] && S().gridIds[0] === ids[0] && S().gridIds[1] === ids[1]
         // 复位
         store.setState({ physicalFullscreen: false, fullscreenCell: null, viewMode: 'browse', gridIds: [] })
         S().setViewMode('browse')
         await wait(200)
         out.ok = out.dblL1 && out.l3toB && out.l3toA && out.slotsKept && out.l3Minibar &&
-          out.exited && out.gridL1 && out.gridL3a && out.gridL3b && out.gridIdsKept
+          out.exited && out.xSwapKept && out.navAfterX && out.navBackAfterX &&
+          out.gridL1 && out.gridL3a && out.gridL3b && out.gridIdsKept && out.gridNavAfterL3
         return out
       })()`)
       console.log(`[SMOKE] 双击三层链: ${JSON.stringify(chainAssert)}`)

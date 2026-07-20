@@ -730,28 +730,35 @@ export const useAppStore = create<AppState>()((set, get) => ({
       return nav[idx].id // 集合内除被占据项外无其他项：无处可去，保持
     }
     if (s.viewMode === 'compare') {
-      // ←/→ 永远作用于**激活槽位**（Tab 切换），优先跳过另一侧槽位占据的图；
+      // ←/→ 作用于**当前显示的槽位**：控件全屏（双击链 L1/L2/L3）= fullscreenCell 指定的槽
+      // （X 交换会翻转 activeSlot，显示槽与激活槽错位时以显示为准，否则改了隐藏槽看似失效）；
+      // 非全屏 = 激活槽位（Tab 切换）。优先跳过另一侧槽位占据的图；
       // 跳过后无目标时回退为不跳过（允许 A/B 同图）；集合仅 1 张且当前就在该图时静默 noop
-      const other = s.activeSlot === 'A' ? s.slotB : s.slotA
-      const cur = s.activeSlot === 'A' ? s.slotA : s.slotB
+      const target = s.fullscreenCell === 'A' || s.fullscreenCell === 'B' ? s.fullscreenCell : s.activeSlot
+      const other = target === 'A' ? s.slotB : s.slotA
+      const cur = target === 'A' ? s.slotA : s.slotB
       let next = stepIdSkipping(cur, (id) => id === other)
       if (next === cur) next = stepId(cur) // 回退：允许与另一槽重复
       if (next === cur) return
-      set(s.activeSlot === 'A' ? { slotA: next } : { slotB: next })
+      set(target === 'A' ? { slotA: next } : { slotB: next })
     } else if (s.viewMode === 'single') {
       set({ currentId: stepId(s.currentId) })
     } else if (s.viewMode === 'grid' && s.gridIds.length > 0) {
-      // ←/→ 作用于**激活格**（Tab/数字键切换），优先跳过其他格占据的图；
+      // ←/→ 作用于**当前显示的格**：控件全屏 = fullscreenCell 格索引（L3 切源后与 gridActiveIdx 错位时以显示为准）；
+      // 非全屏 = 激活格（Tab/数字键切换）。优先跳过其他格占据的图；
       // 跳过后无目标时回退为不跳过（允许与其他格同图）；集合仅 1 张时静默 noop
-      const others = new Set(s.gridIds.filter((_, i) => i !== s.gridActiveIdx))
-      const cur = s.gridIds[s.gridActiveIdx] ?? null
+      const fsIdx =
+        s.fullscreenCell !== null && /^\d+$/.test(s.fullscreenCell) ? parseInt(s.fullscreenCell, 10) : -1
+      const targetIdx = fsIdx >= 0 && fsIdx < s.gridIds.length ? fsIdx : s.gridActiveIdx
+      const others = new Set(s.gridIds.filter((_, i) => i !== targetIdx))
+      const cur = s.gridIds[targetIdx] ?? null
       let next = stepIdSkipping(cur, (id) => others.has(id))
       if (next === cur) next = stepId(cur) // 回退：允许与其他格重复
       if (next === cur) return
       // 直接写入而非 setGridCellImage：后者对「目标 id 已在其他格」做交换（胶片条指派的既有语义），
       // 回退同图场景必须允许重复；正常跳过路径下 next 不在 others 中，直接写入与 setGridCellImage 等价
       const gridIds = [...s.gridIds]
-      gridIds[s.gridActiveIdx] = next
+      gridIds[targetIdx] = next
       set({ gridIds })
       preloadCurrentContext(get())
       return
