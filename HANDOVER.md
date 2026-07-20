@@ -47,7 +47,7 @@
 | `set-window-background` | `(color: string)` | `void` | 主题同步窗口背景（#rrggbb 校验） |
 | `special-dirs` | — | `{name,path}[]` | 打开对话框快捷入口：桌面/图片/文档/下载/主目录 + win32 枚举 C–Z 盘符 |
 | `browse-dir` | `(dir: string \| null)` | `{path, parent, dirs}` | null → 顶层盘符/根；否则列一层子目录（复用 listDirsLayer） |
-| `dir-image-preview` | `(dir: string, limit: number)` | `{count, capped, images[]}` | 递归计数（20000 防爆上限）+ 前 limit 张（文件优先排序；limit ≤64） |
+| `dir-image-preview` | `(dir: string, limit: number, shallow?: boolean)` | `{count, capped, images[], dirs?}` | 默认递归计数（20000 防爆上限）+ 前 limit 张（文件优先排序；limit ≤64）；**shallow=true 只列本层**（count/图片均本层，附 `dirs` 本层子文件夹条目） |
 | `copy-into` | `(sources: string[], targetDir: string)` | `{ok, failed}` | 拖放递归复制（文件/目录；重名 `- 副本`；目录 ok 记 `name/`） |
 
 另暴露 `platform`、`versions`、`getPathForFile`（`webUtils.getPathForFile`，拖放 File → 绝对路径）。`twinview://local/<encodeURIComponent(绝对路径)>` 由主进程 `net.fetch(pathToFileURL(...))` 提供，**仅供 `<img>` 显示**；Chromium 在 `file://` 页面禁止 fetch 自定义协议（冒烟中 fetchProbe 失败是**预期行为**），分析层一律走 `read-file-buffer` → blob。
@@ -143,7 +143,7 @@
 
 ### 2.9 打开文件夹对话框（`OpenFolderDialog.tsx`，**选择即打开**）
 
-- **Electron**（`openDirectory()` → `setOpenFolderDialog(true)`）：左栏 = `special-dirs` 快捷入口 + `browse-dir` 子目录列表（含 ↑ 上级）；右栏 = `dir-image-preview(dir, 12)` 缩略图（twinview://）+ 递归计数。**子文件夹单击 = 选中（高亮 + 预览该目录），双击 = 进入**；「打开此文件夹」对选中项（无选中则当前位置）经 `openPathFocus` 直接生效，**无二次确认/中间态**。「系统对话框选择…」走 `select-directory`（win32 文件/文件夹均可选；选中文件 → `focusFile` → 打开所在文件夹并定位选中）。
+- **Electron**（`openDirectory()` → `setOpenFolderDialog(true)`）：左栏 = `special-dirs` 快捷入口 + `browse-dir` 子目录列表（含 ↑ 上级）；右栏 = `dir-image-preview(dir, 12, /* shallow */ true)` **本层预览**——子文件夹 tile（FolderIcon+名称，单击进入）排前 + 本层图片缩略图（twinview://），**计数按本层不递归**（第八轮起；此前递归计数很乱）。**子文件夹单击 = 选中（高亮 + 预览该目录），双击 = 进入**；「打开此文件夹」对选中项（无选中则当前位置）经 `openPathFocus` 直接生效，**无二次确认/中间态**（本层无图也可打开——子目录可能有图，由 recursive 开关决定扫描视野）。「系统对话框选择…」走 `select-directory`（win32 文件/文件夹均可选；选中文件 → `focusFile` → 打开所在文件夹并定位选中）。
 - **浏览器**：`openDirectory()` pick + 扫描后直接打开（第五轮的「选择后确认条」`PendingOpenConfirm` 已删除；`pendingOpen` state 与 confirm/discard actions 一并移除）。
 
 ### 2.10 CLI 与单实例（`electron/main.cjs` + `appStore.applyCliOpen`）
@@ -155,9 +155,10 @@
 - **dev 用法**：`npm run electron:cli -- <args>`（package.json 脚本 = `wait-on http://localhost:7100 && electron . --`）；`npm run electron:dev -- <args>` 不透传（concurrently 把参数当自身位置参数）。
 - **Kimi Work skill**：注册位置 `daimon-share/daimon/skills/twinview/SKILL.md` + 仓库副本 `skills/twinview/SKILL.md`，**两处内容需同步**（规约第 7 条）。
 
-### 2.11 真全屏布局与槽位导航（App.tsx / appStore.navigate）
+### 2.11 全屏策略、真全屏布局与槽位导航（App.tsx / appStore.navigate）
 
-- **物理全屏 = 真全屏**：`physicalFullscreen=true` 时 App 层**卸载**工具栏（`[data-chrome="toolbar"]`）、侧栏（`<aside>`）、胶片条（`[data-chrome="filmstrip"]`）——不修改 `sidebarOpen/filmstripOpen` 本身，退出后**自然恢复**原面板可见性；保留图像 + InfoOverlay/直方图（若开启）+ 悬浮迷你条（含「退出物理全屏」按钮）。`fullscreenchange` 事件同步 store（Esc 退出同样恢复布局）。控件内全屏（fullscreenCell）行为不变。
+- **视图级全屏（第八轮起）**：`fullscreenCell` 语义 = `'single' | 'compare' | 'grid'`，全屏对象是**当前视图控件整体**（不再单格化）——对比全屏连同当前布局（wipe/并排/叠化，分割线/分隔条仍可交互），网格全屏保留全部宫格；进入后图像数量与布局不变。F / 双击进入退出（ViewerPane `onToggleFullscreen`），App 层 `hideChrome = fullscreenCell !== null`（隐藏侧栏+胶片条，工具栏保留）；全屏时视图根叠加 `FullscreenMiniBar`（`[data-minibar]`）。**第八轮前**是单格全屏（'A'/'B'/格索引），双击 pane 会单格化——已移除（用户反馈不要单击/双击改变显示几台图）。ViewerPane 根带 `[data-view-pane]` 供冒烟计数。
+- **物理全屏 = 真全屏**：`physicalFullscreen=true` 时 App 层**卸载**工具栏（`[data-chrome="toolbar"]`）、侧栏（`<aside>`）、胶片条（`[data-chrome="filmstrip"]`）——不修改 `sidebarOpen/filmstripOpen` 本身，退出后**自然恢复**原面板可见性；保留图像 + InfoOverlay/直方图（若开启）+ 悬浮迷你条（含「退出物理全屏」按钮）。`fullscreenchange` 事件同步 store（Esc 退出同样恢复布局）。Shift+F 在 single/compare/grid 可用；未在控件内全屏时先补标 `fullscreenCell = viewMode`（保证迷你条与 hideChrome 生效），Esc 退出顺序：物理全屏 → 视图级全屏 → 浏览。
 - **对比/网格 ←/→ 槽位导航**：`navigate(delta)` 内 `stepIdSkipping(id, skip)` 泛化第五轮的 stepIdSkip——对比模式作用于**激活槽位**（优先跳过另一槽占据项），网格模式作用于**激活格**（优先跳过其他格占据项）；**跳过后无目标时回退为不跳过**（`stepId` 正常步进，允许与另一槽/其他格同图，如仅勾选 2 张占满 A/B）；集合仅 1 张且当前就在该图时静默 noop（无提示）。导航范围由 `getNavList` 遵循「全部/仅勾选」。网格分支**直接写 gridIds** 而非 `setGridCellImage`——后者对「目标已在其他格」做交换（胶片条指派语义），回退同图场景需允许重复；正常跳过路径下两者等价。
 - **showNotice 机制保留**：`notice` state + `showNotice(msg)`（3s 模块级计时器自动消失，App 根 `[data-notice]` 浮签）当前无调用方，留作后续一次性提示通道。X 交换、N 下一对/下一组不变。
 
@@ -169,7 +170,7 @@
 - 目录与列表：`providerKind, dir, loading, loadError, images, recursive, currentPath, treeChildren, treeExpanded, ancestors`
 - 打开对话框：`openFolderDialogOpen`（Electron 自绘对话框）
 - 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize, browseMode`；勾选/剪贴板：`checked, clipboard`
-- 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell, physicalFullscreen`
+- 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell('single'|'compare'|'grid'，视图级全屏), physicalFullscreen`
 - 提示：`notice`（一次性操作提示，showNotice 设置，3s 自动消失；当前无调用方，机制保留）
 - A/B：`slotA, slotB, activeSlot, compareLayout, sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
 - 网格：`gridIds, gridActiveIdx, gridSync, gridLayout, gridTransforms`；单图：`singleTransform`
@@ -231,7 +232,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **排错指引**：
 - 解码缓存行为：`localStorage.twinview.debugCache='1'` → console 看 命中/未命中/入缓存/淘汰/预算；
-- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview count=10+4 张）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、**真全屏布局（physicalFullscreen 状态级模拟：`[data-chrome]`/aside 全隐藏 → 恢复）+ 槽位导航（仅勾选占满时回退同图+无 notice、全部档步进跳过另一槽、激活侧切换步进、swap 回归、网格跳过占据格+网格回退同图）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
+- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview 递归 count=10+4 张 + shallow 本层 count=8/dirs 含 sub/缩略图无子目录）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、**真全屏布局（physicalFullscreen 状态级模拟：`[data-chrome]`/aside 全隐藏 → 恢复）+ 槽位导航（仅勾选占满时回退同图+无 notice、全部档步进跳过另一槽、激活侧切换步进、swap 回归、网格跳过占据格+网格回退同图）+ 全屏策略（对比并排全屏 `[data-view-pane]`×2+分隔条+`[data-minibar]`+chrome 隐藏、物理叠加卸载工具栏、退出恢复；网格 4 图全屏 ×4）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
 - `twinview://` 在 file:// 页面 fetch 失败是**预期**（Chromium 限制）；分析层必须走 `read-file-buffer` → blob，否则 canvas 被污染（`getImageData` 抛 SecurityError）；
 - 黑闪/闪屏类问题：先看 ViewerPane 帧模型（stale 判定、finish 时机、pin 平衡），再看 CanvasSmooth 防抖分流。
 
