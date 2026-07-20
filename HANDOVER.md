@@ -137,7 +137,9 @@
 ### 2.8 软件重采样（`src/lib/resampler.ts`）
 
 - 可分离两遍卷积：水平 `sw×sh → tw×sh`（Float32 中间缓冲）→ 垂直 `→ tw×th`；某一维尺寸不变则跳过该遍。
-- 核：BIFant 盒式（support 0.5）/ 双线性三角（1）/ 双立方 Catmull-Rom a=-0.5（2）/ Lanczos-3 sinc 窗（3）；缩小时核按 1/scale 加宽抗混叠；权重按输出像素预计算 `{start, weights}` 并归一化。
+- 核：BIFant 盒式（support 0.5，**area 模式**）/ 双线性三角（1）/ 双立方 Catmull-Rom a=-0.5（2）/ Lanczos-3 sinc 窗（3）；缩小时核按 1/scale 加宽抗混叠；权重按输出像素预计算 `{start, weights}` 并归一化。
+- **BIFant 权重 = 覆盖长度（真 Fant，第九轮修复）**：输出像素源足迹 `[center±support]` 与源像素 `[p, p+1]` 的覆盖长度为权重（边缘像素按比例部分计入）。此前是 all-or-nothing（像素中心落入足迹即全权重、否则 0），且贡献窗把像素当整数点而非中心 p+0.5（整体右偏 0.5px）——轻微缩小（≥0.78）时足迹 1~1.3px，边缘像素跳入/跳出产生周期性横竖线；放大时单贡献像素中心距 >0.5 被清零成**全黑像素**（周期黑线，实测 meanErr 高达 46~71 灰级）。非面积核贡献窗相应修为 `[center±(support+0.5)]`（多收像素权重自然为 0，不错漏）。
+- 回归校验：`npm run verify:bifant` = tsc 编译 resampler.ts 到 `.verify-tmp/` + `node scripts/verify-bifant.mjs`（合成对角渐变+2px 网格，50/78/100/150% 跑 `resamplePixels`，断言行列均值尖峰比 ≤2.5、全局均值漂移 ≤1 灰级；输出 PGM/PNG 供目检）。`resamplePixels` 为无 DOM 纯函数，与 `resampleTo` 共用 contribs + `hPassRange`/`vPassRange` 行区间卷积。
 - 分片（256 行）`setTimeout(0)` 让出主线程；`ResampleHandle.cancel()` 取消（ViewerPane 调度新任务前取消旧的）；LRU 8 张（key = `条目id|算法|宽x高`，ImageBitmap，`clearResampleCache()` 全清）。
 - 源像素：decode-cache 的 bitmap 画离屏 canvas 取 `getImageData`（同探针链路，不污染 canvas）。
 

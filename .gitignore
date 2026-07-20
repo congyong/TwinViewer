@@ -12,3 +12,6 @@ smoke-home.png
 *.tmp
 .DS_Store
 Thumbs.db
+
+# BIFant 验证产物
+.verify-tmp/

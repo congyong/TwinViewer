@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:7100 && electron .\"",
     "electron:cli": "wait-on http://localhost:7100 && electron . --",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "verify:bifant": "tsc src/lib/resampler.ts --outDir .verify-tmp --module ES2022 --target ES2022 --lib ES2022,DOM --skipLibCheck && node scripts/verify-bifant.mjs"
   },
   "build": {
     "appId": "com.twinview.app",

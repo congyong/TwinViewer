@@ -133,12 +133,12 @@ TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .
 
 | 算法 | 特性 |
 | --- | --- |
-| BIFant | 盒式面积平均（support 0.5），**缩小最干净**，接近整数倍缩小无混叠 |
+| BIFant | 盒式**真面积平均**（Fant，support 0.5）：权重 = 输出像素源足迹与每个源像素的覆盖长度（边缘像素按比例部分计入），**缩小最干净**，接近整数倍缩小无混叠；放大为平滑线性混合 |
 | 双线性 | 三角核（support 1），速度快、效果均衡 |
 | 双立方 | Catmull-Rom（a=-0.5，support 2），锐利但边缘略过冲 |
 | Lanczos-3 | sinc 加窗（support 3），**质量最佳**、最慢，缩略图首选 |
 
-实现为 CPU 可分离两遍卷积（先水平后垂直），缩小时核按 1/scale 加宽抗混叠；权重按输出像素预计算；分片 `setTimeout(0)` 让出主线程且可取消；结果按 `条目|算法|尺寸` LRU 缓存 8 张；canvas 目标尺寸夹取 4096px。
+实现为 CPU 可分离两遍卷积（先水平后垂直，Float32 中间缓冲），缩小时核按 1/scale 加宽抗混叠；贡献窗按像素中心（p+0.5）对齐核支撑；权重按输出像素预计算并归一化；分片 `setTimeout(0)` 让出主线程且可取消；结果按 `条目|算法|尺寸` LRU 缓存 8 张；canvas 目标尺寸夹取 4096px。回归校验：`npm run verify:bifant`（合成渐变+网格在 50/78/100/150% 跑 BIFant，断言行列均值无周期尖峰、能量守恒）。
 
 ## 技术栈与架构
 
