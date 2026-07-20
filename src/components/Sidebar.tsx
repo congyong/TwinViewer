@@ -24,6 +24,7 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
   const currentPath = useAppStore((s) => s.currentPath)
   const toggleTreeNode = useAppStore((s) => s.toggleTreeNode)
   const setCurrentPath = useAppStore((s) => s.setCurrentPath)
+  const setViewMode = useAppStore((s) => s.setViewMode)
   const isCurrent = currentPath === relPath
 
   return (
@@ -34,7 +35,11 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
           isCurrent && 'bg-sky-600/30 text-sky-200',
         )}
         style={{ paddingLeft: depth * 12 + 2 }}
-        onClick={() => setCurrentPath(relPath)}
+        onClick={() => {
+          // 点树节点 = 看该目录的网格：任何视图下都切回浏览模式（浏览中点击行为不变）
+          setCurrentPath(relPath)
+          setViewMode('browse')
+        }}
         title={relPath === '' ? '根目录' : relPath}
       >
         <button

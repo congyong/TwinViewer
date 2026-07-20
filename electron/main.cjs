@@ -762,6 +762,52 @@ async function runSmokeTest(win) {
         return fail(`双击三层链不符预期: ${JSON.stringify(chainAssert)}`)
       }
 
+      // a.11) 对比视图点击文件夹树节点 → 切回浏览模式且 currentPath 正确；浏览中点击行为不变；Esc 不回归
+      const treeAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        const ids = S().images.map((e) => e.id)
+        // 对比模式（并排，根目录视野）下点击树中 sub 节点行（行 title = relPath）
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', currentPath: '', fullscreenCell: null, physicalFullscreen: false, checked: [], navScope: 'all' })
+        await wait(300)
+        out.inCompare = S().viewMode === 'compare' && !!document.querySelector('aside')
+        const subRow = document.querySelector('aside div[title="sub"]')
+        out.nodeFound = !!subRow
+        if (subRow) {
+          subRow.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          await wait(300)
+        }
+        out.toBrowse = S().viewMode === 'browse'
+        out.pathOk = S().currentPath === 'sub'
+        // 浏览模式中点树根节点：仍在浏览、path 回根（既有行为不变）
+        const rootRow = document.querySelector('aside div[title="根目录"]')
+        out.rootFound = !!rootRow
+        if (rootRow) {
+          rootRow.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          await wait(300)
+        }
+        out.browseStays = S().viewMode === 'browse' && S().currentPath === ''
+        // Esc 不回归：再进对比 → Esc → 回浏览
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side' })
+        await wait(250)
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await wait(250)
+        out.escBack = S().viewMode === 'browse'
+        // 复位
+        store.setState({ viewMode: 'browse', currentPath: '', fullscreenCell: null, checked: [] })
+        await wait(200)
+        out.ok = out.inCompare && out.nodeFound && out.toBrowse && out.pathOk &&
+          out.rootFound && out.browseStays && out.escBack
+        return out
+      })()`)
+      console.log(`[SMOKE] 树点击回浏览: ${JSON.stringify(treeAssert)}`)
+      if (!treeAssert.ok) {
+        clearTimeout(killer)
+        return fail(`树点击回浏览不符预期: ${JSON.stringify(treeAssert)}`)
+      }
+
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
       await new Promise((r) => setTimeout(r, 3000))
       let image = null
