@@ -214,7 +214,8 @@ export function encodeGif(quality: RecQuality): Promise<Blob> {
   for (const data of s.gifFrames) {
     let pixels: Uint8ClampedArray = data
     if (scale !== 1) {
-      sctx.putImageData(new ImageData(data, s.gifFrameSize.w, s.gifFrameSize.h), 0, 0)
+      // 拷贝为新 Uint8ClampedArray：ImageData 构造要求 ArrayBuffer（非 SharedArrayBuffer）
+      sctx.putImageData(new ImageData(new Uint8ClampedArray(data), s.gifFrameSize.w, s.gifFrameSize.h), 0, 0)
       dctx.drawImage(src, 0, 0, w, h)
       pixels = dctx.getImageData(0, 0, w, h).data
     }

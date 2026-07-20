@@ -166,6 +166,23 @@
 - **对比/网格 ←/→ 槽位导航**：`navigate(delta)` 内 `stepIdSkipping(id, skip)` 泛化第五轮的 stepIdSkip——对比模式作用于**激活槽位**（优先跳过另一槽占据项），网格模式作用于**激活格**（优先跳过其他格占据项）；**跳过后无目标时回退为不跳过**（`stepId` 正常步进，允许与另一槽/其他格同图，如仅勾选 2 张占满 A/B）；集合仅 1 张且当前就在该图时静默 noop（无提示）。导航范围由 `getNavList` 遵循「全部/仅勾选」。网格分支**直接写 gridIds** 而非 `setGridCellImage`——后者对「目标已在其他格」做交换（胶片条指派语义），回退同图场景需允许重复；正常跳过路径下两者等价。
 - **showNotice 机制保留**：`notice` state + `showNotice(msg)`（3s 模块级计时器自动消失，App 根 `[data-notice]` 浮签）当前无调用方，留作后续一次性提示通道。X 交换、N 下一对/下一组不变。
 
+### 2.12 差值热图布局（diff，`src/lib/diffmap.ts` + `src/components/DiffPane.tsx`，第十一轮）
+
+- `CompareLayout` 第 4 档 `'diff'`（持久化）；**D 键 = `toggleDiffLayout()`**：进入 diff 记录 `diffPrevLayout`（会话级），再按 D 还原；W/G `cycleCompareLayout` 仍只在 划变→并排→叠化 三档循环（diff 档时回划变）。工具栏 segmented 加「差值」档；**配置面板仅 diff 激活时显示**（`[data-diff-panel]`）：colormap 下拉 + 容差滑块/数值输入（0–128，默认 16），`diffColormap/diffTolerance` 持久化到 settings。
+- **计算**（`computeDiffBitmap(bmpA, bmpB, tolerance, colormap)`）：公共采样网格 = **A 的自然尺寸**，B 经 canvas 平滑缩放到 A 尺寸（`toImageData`）；逐像素差值 = **三通道最大 abs diff**（max(|Δr|,|Δg|,|Δb|)，非欧氏距离——对通道级错位更敏感、计算更省）；**diff ≤ 容差 → 黑色**；否则 `(diff-容差)/(255-容差)` 归一 → 256 级 LUT。LUT：inferno/viridis = matplotlib 锚点分段线性插值近似（视觉与原 LUT 一致），gray 线性，coolwarm = (59,76,192)→(221,221,221)→(180,4,38) 发散。数据源 = decode-cache bitmap（blob 解码，canvas 不污染）。
+- **DiffPane**：交互与 ViewerPane 对齐（滚轮锚点缩放/拖拽平移/双击走 fullscreenDblClick(activeSlot)/旋转），transform 用 `sharedTransform`；**重算仅发生在源图/容差/colormap 变化**（100ms 防抖），缩放平移只 drawImage 已算好的 diff bitmap（不重算）。diff bitmap 旧帧持有至新帧就绪（close 旧帧防泄漏）；A/B pinDecoded 与 ViewerPane 同规则。**ALT 探针在 diff 下不支持**（合成图坐标会误导）。显示 canvas 带 `[data-diff-canvas]` 供冒烟读像素。
+- 冒烟 a.12：UI 挂载（面板+canvas）→ 同图（A1 vs A1）中心像素全黑 → 异图非黑 → 单元级（动态 `import('/src/lib/diffmap.ts')` + 合成 4×4 位图，d=100 恒定）：容差 16→64 灰度值单调下降、容差 100 全黑、inferno≠viridis。
+
+### 2.13 显示区录制（`src/lib/recorder.ts` + `RecordOverlay.tsx` + store rec*，第十一轮）
+
+- **状态机**（store）：`idle → starting(3s 倒计时) → recording → stopping(3s 倒计时) → saving → idle`；S 键/工具栏按钮 = `toggleRecord()`：idle→starting、starting→取消回 idle、recording→stopping、stopping→取消回 recording（saving 中 S 无效）。倒计时 tick 用模块级 `recTickTimer`（store.setState({recCountdown}) 可被冒烟快进）；`recElapsedTimer` 驱动红点徽标计时；**10 分钟上限** `recMaxTimer` 自动 finalize。`setViewMode` 入口先 `stopRecordingCleanup()`（视图切换一律停止并释放 tracks）。
+- **采集**：Electron = IPC `get-window-source-id`（desktopCapturer 按窗口标题匹配）→ `getUserMedia({video:{mandatory:{chromeMediaSource:'desktop', chromeMediaSourceId}}})`；浏览器 = `getDisplayMedia`（限制见 README）。隐藏 `<video>` 播流 → **镜像 canvas 按 `<main>` rect 裁剪**（15fps，videoWidth/innerWidth 换算设备像素）→ `captureStream(15)`。
+- **编码**：MediaRecorder mime 运行时探测（`video/mp4;codecs=avc1…` → `video/mp4` → `webm/vp9` → `webm`），**MP4 不可用落 WebM 且 UI 明示**（保存对话框格式按钮与提示均按实际 `recMime` 标注）；**码率按画质档于录制开始确定**（高8/中4/低2 Mbps；保存对话框改画质只影响 GIF 与下次录制——已知折衷）。**GIF**：录制时同步收集 10fps / 宽 360 帧（环形最近 30 秒 = 300 帧），保存时 gifenc 逐帧 `quantize+applyPalette`（画质档控制色数 256/128/64 与缩放 1/0.75/0.5）。
+- **保存**：格式（视频/GIF）+ 画质 + Electron `rec-save-dialog`（showSaveDialog）→ `write-binary-file` IPC（blob→ArrayBuffer→fs.writeFile）；浏览器只能 a[download] 触发下载。取消保存 = `discardCapture()` 释放全部资源。
+- **RecordOverlay**：挂在 App 显示区列（`relative` + absolute 叠层）：starting/stopping 中央胶囊 `[data-rec-pill]`、recording 右上红点徽标 `[data-rec-badge]`、saving 模态 `[data-rec-save]`（`[data-rec-format-video/gif]`、`[data-rec-quality]`、`[data-rec-save-ok]`、`[data-rec-cancel]`）。
+- IPC 新增 ×3：`get-window-source-id` / `rec-save-dialog` / `write-binary-file`（preload 同名透传，TwinviewBridge 类型同步）。
+- 冒烟 a.13（不断言真实编码）：按钮 `[data-rec-btn]` 存在 → S 事件进 starting + 胶囊 → S 取消 → 快进倒计时 → **headless 下真实采集成功**（`captureOk:true`，afterStop 真到 saving）→ 停止倒计时 → 倒计时内取消 → 停止 → 保存对话框（格式/画质按钮）→ 取消回 idle；采集成败与 afterStop 仅报告不断言，saving 态无会话时用假 blob 兜底断言对话框。
+
 ---
 
 ## 3. 状态管理（`src/store/appStore.ts`，zustand 单一 store）
@@ -176,12 +193,14 @@
 - 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize, browseMode`；勾选/剪贴板：`checked, clipboard`
 - 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell('single'|'A'|'B'|格索引，单格控件全屏), physicalFullscreen`
 - 提示：`notice`（一次性操作提示，showNotice 设置，3s 自动消失；当前无调用方，机制保留）
-- A/B：`slotA, slotB, activeSlot, compareLayout, sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
+- A/B：`slotA, slotB, activeSlot, compareLayout('wipe'|'side'|'overlay'|'diff'), sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
+- 差值：`diffColormap, diffTolerance（持久化）, diffPrevLayout（会话级）`
+- 录制：`recPhase('idle'|'starting'|'recording'|'stopping'|'saving'), recCountdown, recElapsed, recMime, recBlob, recFormat, recQuality`（均会话级）
 - 网格：`gridIds, gridActiveIdx, gridSync, gridLayout, gridTransforms`；单图：`singleTransform`
 - 开关：`navScope, resample, theme, infoVisible, histoVisible, sidebarOpen, filmstripOpen, helpOpen`
 - 收藏/取样：`favorites({path,addedAt}[]), samples(SampleRecord[]，≤10 条，seq 自增)`
 
-**Action 分组**：打开/扫描（`openDirectory/openPath/openPathFocus/applyCliOpen/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/navigateUp/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize/setBrowseMode`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/setTheme/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
+**Action 分组**：打开/扫描（`openDirectory/openPath/openPathFocus/applyCliOpen/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/navigateUp/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize/setBrowseMode`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/toggleDiffLayout/setDiffColormap/setDiffTolerance/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/setTheme/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；录制（`toggleRecord/beginCapture/finalizeCapture/setRecFormat/setRecQuality/saveRecording/cancelSave/stopRecordingCleanup`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
 
 **导出辅助**：`newTransform()`、`getVisibleImages(q)`（scopeOk + 格式过滤 + 排序）、`getNavList(q)`（再按 navScope==='checked' 过滤）、`preloadCurrentContext(s)`（内部：按当前视图预解码——compare=[A,B]、grid=全部格、single=当前±1）、`BROWSE_MODE_SIZE`（图标三档固定尺寸映射）。
 
@@ -237,7 +256,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **排错指引**：
 - 解码缓存行为：`localStorage.twinview.debugCache='1'` → console 看 命中/未命中/入缓存/淘汰/预算；
-- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview 递归 count=10+4 张 + shallow 本层 count=8/dirs 含 sub/缩略图无子目录）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、**真全屏布局（physicalFullscreen 状态级模拟：`[data-chrome]`/aside 全隐藏 → 恢复）+ 槽位导航（仅勾选占满时回退同图+无 notice、全部档步进跳过另一槽、激活侧切换步进、swap 回归、网格跳过占据格+网格回退同图）+ 视图级物理全屏 a.9（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + `[data-minibar]` + chrome 全卸载，退出恢复）+ 双击三层链 a.10（事件级 dblclick 进 L1 单格全屏；action 触发物理请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 '0'→'1'→'2' 格组不变；退出 chrome 恢复）+ 树点击回浏览 a.11（对比下模拟树节点点击 → browse + currentPath 正确；浏览中不变；Esc 回归）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
+- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview 递归 count=10+4 张 + shallow 本层 count=8/dirs 含 sub/缩略图无子目录）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、**真全屏布局（physicalFullscreen 状态级模拟：`[data-chrome]`/aside 全隐藏 → 恢复）+ 槽位导航（仅勾选占满时回退同图+无 notice、全部档步进跳过另一槽、激活侧切换步进、swap 回归、网格跳过占据格+网格回退同图）+ 视图级物理全屏 a.9（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + `[data-minibar]` + chrome 全卸载，退出恢复）+ 双击三层链 a.10（事件级 dblclick 进 L1 单格全屏；action 触发物理请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 '0'→'1'→'2' 格组不变；退出 chrome 恢复）+ 树点击回浏览 a.11（对比下模拟树节点点击 → browse + currentPath 正确；浏览中不变；Esc 回归）+ 差值热图 a.12（面板/canvas 挂载、同图全黑、异图非黑、单元级合成位图验容差与 colormap）+ 录制状态机 a.13（S 倒计时→采集→停止倒计时→保存对话框，采集成败仅报告）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
 - `twinview://` 在 file:// 页面 fetch 失败是**预期**（Chromium 限制）；分析层必须走 `read-file-buffer` → blob，否则 canvas 被污染（`getImageData` 抛 SecurityError）；
 - 黑闪/闪屏类问题：先看 ViewerPane 帧模型（stale 判定、finish 时机、pin 平衡），再看 CanvasSmooth 防抖分流。
 
