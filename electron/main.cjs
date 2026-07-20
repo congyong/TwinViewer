@@ -634,11 +634,21 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
 
   ipcMain.handle('select-directory', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
+    // Windows 支持 openFile+openDirectory 并用（同一对话框可选文件或文件夹）；
+    // 其他平台保持 openDirectory（选中文件 = 打开所在文件夹并定位由渲染端处理）
     const result = await dialog.showOpenDialog(win, {
-      title: '选择图片文件夹',
-      properties: ['openDirectory'],
+      title: '选择图片文件夹或图片文件',
+      properties: process.platform === 'win32' ? ['openDirectory', 'openFile'] : ['openDirectory'],
     })
-    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+    if (result.canceled || result.filePaths.length === 0) return null
+    const p = result.filePaths[0]
+    let isFile = false
+    try {
+      isFile = (await fs.stat(p)).isFile()
+    } catch {
+      /* 按目录处理 */
+    }
+    return { path: p, isFile }
   })
 
   ipcMain.handle('scan-directory', async (_event, dir, recursive) => {

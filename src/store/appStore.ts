@@ -182,8 +182,6 @@ export interface AppState {
   loadError: string | null
   /** Electron：自绘「打开文件夹」对话框显隐 */
   openFolderDialogOpen: boolean
-  /** 浏览器模式：选择后待确认的打开（预览确认条；受 FS Access 限制无法在选择前预览） */
-  pendingOpen: { dir: DirectorySource; images: ImageEntry[] } | null
   recursive: boolean
   images: ImageEntry[]
   currentPath: string
@@ -307,7 +305,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
   loading: false,
   loadError: null,
   openFolderDialogOpen: false,
-  pendingOpen: null,
   recursive: settings.recursive,
   images: [],
   currentPath: '',
@@ -363,11 +360,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
     const dir = await provider.pickDirectory()
     if (!dir) return
+    // 浏览器模式：选择即打开（无二次确认）
     set({ loading: true, loadError: null })
     try {
       const images = await provider.listImages(dir, true)
-      // 浏览器模式：FS Access 无法在选择前预览 → 选择后弹预览确认条（确认/重选）
-      set({ loading: false, pendingOpen: { dir, images } })
+      get().revokeAll()
+      clearDecodeSession()
+      clearProbeCache()
+      set(freshState(dir, images))
+      void get().loadAncestors()
     } catch (err) {
       set({ loading: false, loadError: err instanceof Error ? err.message : String(err) })
     }

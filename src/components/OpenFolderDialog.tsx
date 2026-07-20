@@ -1,8 +1,10 @@
 /**
- * Electron 自绘「打开文件夹」对话框：
+ * Electron 自绘「打开文件夹」对话框（简化选择流程）：
  * 左栏快捷入口（桌面/图片/文档/下载/盘符）+ 当前层子目录列表（含 ↑ 上级），
- * 右栏所选文件夹的图片预览（递归计数 + 前 12 张缩略图），
- * 底栏保留系统对话框入口。解决 Electron 原生对话框无预览的问题。
+ * 右栏所选文件夹的图片预览（递归计数 + 前 12 张缩略图）。
+ * 交互：**单击选中**子文件夹（高亮 + 预览），**双击进入**；「打开此文件夹」对
+ * 选中项（无选中则当前位置）直接生效，无二次确认。底栏保留系统对话框入口
+ * （win32 文件/文件夹均可选；选中文件 = 打开所在文件夹并定位选中）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowUp, FolderOpen, HardDrive, Loader2, Star } from 'lucide-react'
@@ -18,12 +20,13 @@ function thumbUrl(path: string) {
 export function OpenFolderDialog() {
   const open = useAppStore((s) => s.openFolderDialogOpen)
   const setOpen = useAppStore((s) => s.setOpenFolderDialog)
-  const openPath = useAppStore((s) => s.openPath)
+  const openPathFocus = useAppStore((s) => s.openPathFocus)
   const currentDirPath = useAppStore((s) => s.dir?.dirPath ?? null)
 
   const [specials, setSpecials] = useState<{ name: string; path: string }[]>([])
   const [browse, setBrowse] = useState<BrowseDirResult | null>(null)
   const [current, setCurrent] = useState<string | null>(null) // 当前浏览位置（null=顶层盘符）
+  const [selected, setSelected] = useState<string | null>(null) // 单击选中的子文件夹
   const [preview, setPreview] = useState<DirImagePreview | null>(null)
   const [previewFor, setPreviewFor] = useState<string | null>(null)
   const [loadingDirs, setLoadingDirs] = useState(false)
@@ -42,6 +45,7 @@ export function OpenFolderDialog() {
         if (reqRef.current !== req) return
         setBrowse(r)
         setCurrent(r.path)
+        setSelected(null) // 进入新位置即清空选中
       } finally {
         if (reqRef.current === req) setLoadingDirs(false)
       }
@@ -69,9 +73,12 @@ export function OpenFolderDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // 当前位置变化 → 刷新预览
+  // 预览/打开目标：选中的子文件夹优先，否则当前浏览位置
+  const target = selected ?? current
+
+  // 目标变化 → 刷新预览
   useEffect(() => {
-    if (!open || !current) {
+    if (!open || !target) {
       setPreview(null)
       setPreviewFor(null)
       return
@@ -79,11 +86,11 @@ export function OpenFolderDialog() {
     let alive = true
     setLoadingPreview(true)
     void provider
-      .dirImagePreview?.(current, 12)
+      .dirImagePreview?.(target, 12)
       .then((p) => {
         if (!alive || !p) return
         setPreview(p)
-        setPreviewFor(current)
+        setPreviewFor(target)
       })
       .finally(() => {
         if (alive) setLoadingPreview(false)
@@ -92,23 +99,25 @@ export function OpenFolderDialog() {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, current])
+  }, [open, target])
 
   if (!open) return null
 
   const close = () => setOpen(false)
-  const openCurrent = () => {
-    if (!current || !preview || preview.count === 0) return
+  const openTarget = () => {
+    if (!target || !preview || preview.count === 0) return
     setOpen(false)
-    void openPath(current)
+    void openPathFocus(target)
   }
   const systemPick = async () => {
     setOpen(false)
     const dir = await provider.pickDirectory()
-    if (dir?.dirPath) await openPath(dir.dirPath)
+    if (!dir?.dirPath) return
+    // 系统选择器选中文件时 focusFile 存在：打开所在文件夹并定位选中
+    await openPathFocus(dir.dirPath, dir.focusFile)
   }
 
-  const previewReady = preview && previewFor === current
+  const previewReady = preview && previewFor === target
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={close}>
@@ -119,8 +128,8 @@ export function OpenFolderDialog() {
         <div className="flex items-center gap-2 border-b border-[var(--tv-line)] px-4 py-2.5">
           <FolderOpen className="h-4 w-4 text-sky-400" />
           <h2 className="text-sm font-semibold text-[var(--tv-text)]">打开文件夹</h2>
-          <span className="ml-auto max-w-[60%] truncate text-xs text-[var(--tv-text-faint)]" title={current ?? ''}>
-            {current ?? '选择位置'}
+          <span className="ml-auto max-w-[60%] truncate text-xs text-[var(--tv-text-faint)]" title={target ?? ''}>
+            {target ?? '选择位置'}
           </span>
         </div>
 
@@ -134,7 +143,7 @@ export function OpenFolderDialog() {
                     key={s.path || s.name}
                     className={cn(
                       'flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--tv-soft)]',
-                      current === s.path && 'bg-[var(--tv-soft)] text-sky-400',
+                      current === s.path && !selected && 'bg-[var(--tv-soft)] text-sky-400',
                     )}
                     onClick={() => void doBrowse(s.path || null)}
                     title={s.path || '此电脑'}
@@ -166,9 +175,13 @@ export function OpenFolderDialog() {
               {browse?.dirs.map((d) => (
                 <button
                   key={d.path}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--tv-soft)]"
-                  onClick={() => void doBrowse(d.path)}
-                  title={d.path}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--tv-soft)]',
+                    selected === d.path && 'bg-sky-600/20 text-sky-400',
+                  )}
+                  onClick={() => setSelected(d.path)}
+                  onDoubleClick={() => void doBrowse(d.path)}
+                  title={`${d.path}（单击选中，双击进入）`}
                 >
                   <FolderIcon className="h-4 w-5 shrink-0" />
                   <span className="truncate text-[var(--tv-text)]">{d.name}</span>
@@ -187,7 +200,7 @@ export function OpenFolderDialog() {
             )}
             {!loadingPreview && !previewReady && (
               <div className="flex flex-1 items-center justify-center text-xs text-[var(--tv-text-faint)]">
-                {current ? '该文件夹无图片' : '请选择文件夹'}
+                {target ? '该文件夹无图片' : '请选择文件夹'}
               </div>
             )}
             {!loadingPreview && previewReady && (
@@ -224,8 +237,8 @@ export function OpenFolderDialog() {
             </button>
             <button
               className="rounded bg-sky-600 px-3 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!current || !previewReady || preview.count === 0}
-              onClick={openCurrent}
+              disabled={!target || !previewReady || preview.count === 0}
+              onClick={openTarget}
             >
               打开此文件夹
             </button>

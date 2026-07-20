@@ -30,6 +30,8 @@ export interface DirectorySource {
   files?: File[]
   /** Electron 下的绝对路径 */
   dirPath?: string
+  /** Electron 系统选择器选中文件时：该文件绝对路径（打开所在文件夹后定位选中） */
+  focusFile?: string
 }
 
 export interface FileOpFailure {

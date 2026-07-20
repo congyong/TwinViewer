@@ -108,7 +108,6 @@ export default function App() {
       </div>
       <HelpOverlay />
       <OpenFolderDialog />
-      <PendingOpenConfirm />
     </div>
   )
 }
