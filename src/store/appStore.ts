@@ -13,15 +13,21 @@ import { fsAccessChildren, fallbackChildren, absDirOf, isAbsPath, normalizeSlash
 import { clamp } from '@/lib/format'
 import { clearDecodeSession, preloadDecode } from '@/lib/decode-cache'
 import { clearProbeCache } from '@/lib/pixel-probe'
+import { loadSettings, updateSettings } from '@/lib/settings'
+import type {
+  BrowseMode,
+  CompareLayout,
+  FavoriteEntry,
+  NavScope,
+  ResampleMode,
+  SortKey,
+  ThemeMode,
+} from '@/lib/settings'
+import { applyTheme } from '@/lib/theme'
 
 export type ViewMode = 'browse' | 'single' | 'compare' | 'grid'
-/** 浏览网格显示模式：大 / 中 / 小图标三档固定尺寸 + 列表 */
-export type BrowseMode = 'large' | 'medium' | 'small' | 'list'
-export type SortKey = 'name' | 'lastModified' | 'size'
-export type ResampleMode = 'auto' | 'nearest' | 'bilinear' | 'bicubic'
-export type CompareLayout = 'wipe' | 'side' | 'overlay'
+export type { BrowseMode, CompareLayout, NavScope, ResampleMode, SortKey, ThemeMode }
 export type GridLayout = 'auto' | '1x2' | '2x1' | '2x2' | '3x2' | '2x3' | '3x3'
-export type NavScope = 'all' | 'checked'
 export type ProviderKind = 'browser' | 'electron'
 
 /** 视图变换：mode=fit 适应窗口；free 时 zoom 为相对原图的缩放，panFX/panFY 为渲染尺寸的分数位移；rotation 角度制 */
@@ -33,10 +39,7 @@ export interface ViewTransform {
   rotation: number
 }
 
-export interface FavoriteItem {
-  path: string
-  addedAt: number
-}
+export interface FavoriteItem extends FavoriteEntry {}
 
 /** 一条 ALT 取样记录（seq 由 store 分配，单调递增） */
 export interface SampleRecord {
@@ -109,15 +112,6 @@ export function getNavList(q: NavQuery): ImageEntry[] {
 
 /* ------------------------------ 持久化 ------------------------------ */
 
-const FAVS_KEY = 'twinview.favorites'
-const SPLIT_KEY = 'twinview.splitRatio'
-const WIPE_KEY = 'twinview.wipeRatio'
-const RESAMPLE_KEY = 'twinview.resample'
-const NAVSCOPE_KEY = 'twinview.navScope'
-const LAYOUT_KEY = 'twinview.compareLayout'
-const HISTO_KEY = 'twinview.histoVisible'
-const BROWSE_MODE_KEY = 'twinview.browseMode'
-
 /** 浏览模式三档图标档对应的固定缩略图尺寸（列表档不修改 thumbSize） */
 export const BROWSE_MODE_SIZE: Record<Exclude<BrowseMode, 'list'>, number> = {
   large: 256,
@@ -125,75 +119,11 @@ export const BROWSE_MODE_SIZE: Record<Exclude<BrowseMode, 'list'>, number> = {
   small: 112,
 }
 
-function loadFavorites(): FavoriteItem[] {
-  try {
-    const raw = localStorage.getItem(FAVS_KEY)
-    return raw ? (JSON.parse(raw) as FavoriteItem[]) : []
-  } catch {
-    return []
-  }
-}
-
-/** 读取 (0,1) 区间的小数偏好；非法时返回默认值并按 [min,max] 夹取 */
-function loadRatio(key: string, def: number, min: number, max: number): number {
-  try {
-    const v = Number(localStorage.getItem(key))
-    return Number.isFinite(v) && v > 0 && v < 1 ? clamp(v, min, max) : def
-  } catch {
-    return def
-  }
-}
-
-function savePref(key: string, value: string | number): void {
-  try {
-    localStorage.setItem(key, String(value))
-  } catch {
-    /* 忽略配额错误 */
-  }
-}
-
-function loadResample(): ResampleMode {
-  try {
-    const v = localStorage.getItem(RESAMPLE_KEY)
-    return v === 'nearest' || v === 'bilinear' || v === 'bicubic' ? v : 'auto'
-  } catch {
-    return 'auto'
-  }
-}
-
-function loadNavScope(): NavScope {
-  try {
-    return localStorage.getItem(NAVSCOPE_KEY) === 'all' ? 'all' : 'checked'
-  } catch {
-    return 'checked'
-  }
-}
-
-function loadCompareLayout(): CompareLayout {
-  try {
-    const v = localStorage.getItem(LAYOUT_KEY)
-    return v === 'wipe' || v === 'overlay' || v === 'side' ? v : 'side'
-  } catch {
-    return 'side'
-  }
-}
-
-function loadHistoVisible(): boolean {
-  try {
-    return localStorage.getItem(HISTO_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function loadBrowseMode(): BrowseMode {
-  try {
-    const v = localStorage.getItem(BROWSE_MODE_KEY)
-    return v === 'large' || v === 'small' || v === 'list' ? v : 'medium'
-  } catch {
-    return 'medium'
-  }
-}
+/**
+ * 启动时统一加载的用户设置（lib/settings.ts：单 key + 版本号 + 旧散 key 迁移）。
+ * 所有偏好 setter 经 updateSettings() 持久化。
+ */
+const settings = loadSettings()
 
 /** 打开目录 / 重扫时的状态重置（保留排序、过滤、布局等用户偏好） */
 function freshState(dir: DirectorySource, images: ImageEntry[]) {
@@ -360,25 +290,24 @@ export interface AppState {
   revokeAll: () => void
 }
 
-/** 初始浏览模式（读一次 localStorage；列表档时 thumbSize 回退中档尺寸） */
-const initialBrowseMode = loadBrowseMode()
-
 export const useAppStore = create<AppState>()((set, get) => ({
   providerKind: getFSProvider().kind,
   dir: null,
   loading: false,
   loadError: null,
-  recursive: true,
+  openFolderDialogOpen: false,
+  pendingOpen: null,
+  recursive: settings.recursive,
   images: [],
   currentPath: '',
   treeChildren: {},
   treeExpanded: { '': true },
   ancestors: [],
-  formatFilter: 'all',
-  sortKey: 'name',
-  sortAsc: true,
-  thumbSize: BROWSE_MODE_SIZE[initialBrowseMode === 'list' ? 'medium' : initialBrowseMode],
-  browseMode: initialBrowseMode,
+  formatFilter: settings.formatFilter,
+  sortKey: settings.sortKey,
+  sortAsc: settings.sortAsc,
+  thumbSize: BROWSE_MODE_SIZE[settings.browseMode === 'list' ? 'medium' : settings.browseMode],
+  browseMode: settings.browseMode,
   checked: [],
   clipboard: [],
   viewMode: 'browse',
@@ -386,27 +315,28 @@ export const useAppStore = create<AppState>()((set, get) => ({
   slotA: null,
   slotB: null,
   activeSlot: 'A',
-  navScope: loadNavScope(),
-  compareLayout: loadCompareLayout(),
-  sync: true,
-  splitRatio: loadRatio(SPLIT_KEY, 0.5, 0.15, 0.85),
-  wipeRatio: loadRatio(WIPE_KEY, 0.5, 0.05, 0.95),
-  overlayOpacity: 0.5,
+  navScope: settings.navScope,
+  compareLayout: settings.compareLayout,
+  sync: settings.sync,
+  splitRatio: clamp(settings.splitRatio, 0.15, 0.85),
+  wipeRatio: clamp(settings.wipeRatio, 0.05, 0.95),
+  overlayOpacity: settings.overlayOpacity,
   overlaySwapped: false,
   gridIds: [],
   gridActiveIdx: 0,
-  gridSync: true,
+  gridSync: settings.gridSync,
   gridLayout: 'auto',
-  resample: loadResample(),
-  infoVisible: true,
-  histoVisible: loadHistoVisible(),
+  resample: settings.resample,
+  infoVisible: settings.infoVisible,
+  histoVisible: settings.histoVisible,
   fullscreenCell: null,
   physicalFullscreen: false,
-  sidebarOpen: true,
-  filmstripOpen: true,
+  sidebarOpen: settings.sidebarOpen,
+  filmstripOpen: settings.filmstripOpen,
   helpOpen: false,
-  favorites: loadFavorites(),
+  favorites: settings.favorites,
   samples: [],
+  theme: settings.theme,
   singleTransform: newTransform(),
   sharedTransform: newTransform(),
   transformA: newTransform(),
@@ -463,7 +393,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setRecursive: (v) => set({ recursive: v }),
+  setRecursive: (v) => {
+    updateSettings({ recursive: v })
+    set({ recursive: v })
+  },
   setCurrentPath: (path) => set({ currentPath: path }),
 
   toggleTreeNode: (relPath) => {
@@ -525,13 +458,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setFormatFilter: (v) => set({ formatFilter: v }),
-  setSortKey: (v) => set({ sortKey: v }),
-  toggleSortAsc: () => set((s) => ({ sortAsc: !s.sortAsc })),
+  setFormatFilter: (v) => {
+    updateSettings({ formatFilter: v })
+    set({ formatFilter: v })
+  },
+  setSortKey: (v) => {
+    updateSettings({ sortKey: v })
+    set({ sortKey: v })
+  },
+  toggleSortAsc: () =>
+    set((s) => {
+      updateSettings({ sortAsc: !s.sortAsc })
+      return { sortAsc: !s.sortAsc }
+    }),
   setThumbSize: (v) => set({ thumbSize: v }),
 
   setBrowseMode: (m) => {
-    savePref(BROWSE_MODE_KEY, m)
+    updateSettings({ browseMode: m })
     // 图标档写入对应固定尺寸；列表档保留当前 thumbSize 以便切回
     if (m !== 'list') set({ browseMode: m, thumbSize: BROWSE_MODE_SIZE[m] })
     else set({ browseMode: m })
@@ -654,7 +597,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   toggleActiveSlot: () => set((s) => ({ activeSlot: s.activeSlot === 'A' ? 'B' : 'A' })),
 
   setNavScope: (v) => {
-    savePref(NAVSCOPE_KEY, v)
+    updateSettings({ navScope: v })
     set({ navScope: v })
   },
 
@@ -789,16 +732,20 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setGridTransform: (idx, t) => set((s) => ({ gridTransforms: { ...s.gridTransforms, [idx]: t } })),
 
   setResample: (v) => {
-    savePref(RESAMPLE_KEY, v)
+    updateSettings({ resample: v })
     set({ resample: v })
   },
 
-  toggleInfo: () => set((s) => ({ infoVisible: !s.infoVisible })),
+  toggleInfo: () =>
+    set((s) => {
+      updateSettings({ infoVisible: !s.infoVisible })
+      return { infoVisible: !s.infoVisible }
+    }),
 
   toggleHisto: () =>
     set((s) => {
       const v = !s.histoVisible
-      savePref(HISTO_KEY, v ? '1' : '0')
+      updateSettings({ histoVisible: v })
       return { histoVisible: v }
     }),
 
@@ -820,21 +767,35 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }),
   clearSamples: () => set({ samples: [] }),
 
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  toggleFilmstrip: () => set((s) => ({ filmstripOpen: !s.filmstripOpen })),
+  toggleSidebar: () =>
+    set((s) => {
+      updateSettings({ sidebarOpen: !s.sidebarOpen })
+      return { sidebarOpen: !s.sidebarOpen }
+    }),
+  toggleFilmstrip: () =>
+    set((s) => {
+      updateSettings({ filmstripOpen: !s.filmstripOpen })
+      return { filmstripOpen: !s.filmstripOpen }
+    }),
   toggleHelp: () => set((s) => ({ helpOpen: !s.helpOpen })),
+
+  setTheme: (m) => {
+    updateSettings({ theme: m })
+    applyTheme(m)
+    set({ theme: m })
+  },
 
   addFavorite: () => {
     const { dir, favorites } = get()
     if (!dir?.dirPath || favorites.some((f) => f.path === dir.dirPath)) return
     const next = [...favorites, { path: dir.dirPath, addedAt: Date.now() }]
-    savePref(FAVS_KEY, JSON.stringify(next))
+    updateSettings({ favorites: next })
     set({ favorites: next })
   },
 
   removeFavorite: (path) => {
     const next = get().favorites.filter((f) => f.path !== path)
-    savePref(FAVS_KEY, JSON.stringify(next))
+    updateSettings({ favorites: next })
     set({ favorites: next })
   },
 
@@ -842,7 +803,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setSharedTransform: (t) => set({ sharedTransform: t }),
   setTransformA: (t) => set({ transformA: t }),
   setTransformB: (t) => set({ transformB: t }),
-
   rotateCurrent: (dir) => {
     const s = get()
     const rot = (t: ViewTransform): ViewTransform => ({
@@ -894,6 +854,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
     for (const e of get().images) e.revoke()
   },
 }))
+
+// 启动时应用持久化主题（index.html 内联脚本负责首帧防闪，此处为 React 接管后的权威状态）
+applyTheme(settings.theme)
 
 // 仅开发模式暴露 store 句柄（Electron 冒烟测试 / 控制台调试；生产构建由 Rollup 消除）
 if (import.meta.env.DEV) {

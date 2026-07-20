@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronRight,
   FolderOpen,
-  Folder,
   Star,
   Trash2,
   MonitorPlay,
@@ -15,6 +14,7 @@ import { Separator } from '@/components/ui/separator'
 import type { DirNode } from '@/lib/dir-tree'
 import { relDirOf } from '@/lib/dir-tree'
 import { useAppStore, getVisibleImages } from '@/store/appStore'
+import { FolderIcon } from '@/components/FolderIcon'
 import { cn } from '@/lib/utils'
 
 /** 文件夹树节点（递归渲染，子层懒加载） */
@@ -47,21 +47,21 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
-        <Folder className={cn('h-3.5 w-3.5 shrink-0', isCurrent ? 'text-sky-300' : 'text-amber-500/80')} />
+        <FolderIcon className="h-3.5 w-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{name}</span>
-        <span className="shrink-0 rounded bg-black/40 px-1 text-[10px] text-neutral-400" title="本层图片数（回退模式为含子目录）">
+        <span className="shrink-0 rounded bg-[var(--tv-badge)] px-1 text-[10px] text-[var(--tv-text-dim)]" title="本层图片数（回退模式为含子目录）">
           {imageCount}
         </span>
       </div>
       {expanded && children === undefined && (
-        <div className="py-0.5 text-[11px] text-neutral-500" style={{ paddingLeft: (depth + 1) * 12 + 18 }}>
+        <div className="py-0.5 text-[11px] text-[var(--tv-text-faint)]" style={{ paddingLeft: (depth + 1) * 12 + 18 }}>
           加载中…
         </div>
       )}
       {expanded &&
         children?.map((c) => <TreeNode key={c.relPath} {...c} depth={depth + 1} />)}
       {expanded && children !== undefined && children.length === 0 && (
-        <div className="py-0.5 text-[11px] text-neutral-600" style={{ paddingLeft: (depth + 1) * 12 + 18 }}>
+        <div className="py-0.5 text-[11px] text-[var(--tv-text-faint)]" style={{ paddingLeft: (depth + 1) * 12 + 18 }}>
           （无子目录）
         </div>
       )}

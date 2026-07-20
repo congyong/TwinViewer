@@ -6,7 +6,6 @@ import {
   ChevronUp,
   ClipboardPaste,
   Copy,
-  Folder,
   FolderOpen,
   FolderPlus,
   RefreshCw,
@@ -14,14 +13,25 @@ import {
 } from 'lucide-react'
 import type { ImageEntry } from '@/lib/fs-provider'
 import type { FileOpResult } from '@/lib/fs-provider'
+import { getFSProvider } from '@/lib/fs-provider'
 import type { DirNode } from '@/lib/dir-tree'
 import { isAbsPath, normalizeSlashes, scopeOk } from '@/lib/dir-tree'
 import { formatBytes, formatTime } from '@/lib/format'
 import { getVisibleImages, useAppStore } from '@/store/appStore'
 import type { SortKey } from '@/store/appStore'
-import { pasteFiles, makeDirectory, trashEntries, writeSupported, writeUnsupportedReason } from '@/lib/file-ops'
+import {
+  pasteFiles,
+  makeDirectory,
+  trashEntries,
+  writeSupported,
+  writeUnsupportedReason,
+  dropToDirectory,
+  dropItemsFromDataTransfer,
+  electronTargetDir,
+} from '@/lib/file-ops'
 import { ConfirmDialog, ContextMenu, NameDialog } from '@/components/FileOpsMenu'
 import type { MenuItem } from '@/components/FileOpsMenu'
+import { FolderFrame, FolderIcon } from '@/components/FolderIcon'
 import { cn } from '@/lib/utils'
 
 interface MenuState {
@@ -178,37 +188,43 @@ const FolderCard = memo(function FolderCard({
       onContextMenu={onContextMenu}
       title={`${node.relPath || node.name}（双击进入，右键菜单）`}
     >
-      <div className="overflow-hidden bg-[#161616]" style={{ width: size, height: size }}>
+      <div className="overflow-hidden bg-[var(--tv-well)]" style={{ width: size, height: size }}>
         {preview.length === 0 ? (
           <div className="flex h-full w-full items-center justify-center">
-            <Folder style={{ width: size * 0.4, height: size * 0.4 }} className="text-amber-500/70" />
+            <FolderIcon className="h-3/5 w-3/5" />
           </div>
         ) : (
-          <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-px bg-black/50">
-            {preview.map((e, i) => (
-              <div
-                key={e.id}
-                className={cn(
-                  'flex items-center justify-center overflow-hidden',
-                  preview.length === 1 && 'col-span-2 row-span-2',
-                )}
-              >
-                {urls[i] ? (
-                  <img src={urls[i]} alt={e.name} loading="lazy" className="h-full w-full object-cover" draggable={false} />
-                ) : (
-                  <div className="text-xs text-neutral-700">…</div>
-                )}
+          <div className="relative h-full w-full">
+            {/* 拼贴预览嵌在文件夹主体区域（FolderFrame 主体约 x:9%..91%, y:36%..84%） */}
+            <div className="absolute overflow-hidden rounded-sm" style={{ left: '9%', top: '36%', width: '82%', height: '48%' }}>
+              <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-px bg-black/50">
+                {preview.map((e, i) => (
+                  <div
+                    key={e.id}
+                    className={cn(
+                      'flex items-center justify-center overflow-hidden',
+                      preview.length === 1 && 'col-span-2 row-span-2',
+                    )}
+                  >
+                    {urls[i] ? (
+                      <img src={urls[i]} alt={e.name} loading="lazy" className="h-full w-full object-cover" draggable={false} />
+                    ) : (
+                      <div className="text-xs text-[var(--tv-text-faint)]">…</div>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+            <FolderFrame className="pointer-events-none absolute inset-0 h-full w-full" />
           </div>
         )}
       </div>
       <div className="flex items-center gap-1 px-1.5 py-1">
-        <Folder className="h-3 w-3 shrink-0 text-amber-500/80" />
-        <span className="min-w-0 flex-1 truncate text-[11px] text-neutral-300" title={node.name}>
+        <FolderIcon className="h-3.5 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--tv-text)]" title={node.name}>
           {node.name}
         </span>
-        <span className="shrink-0 text-[10px] text-neutral-500" title="图片数（含子目录）">
+        <span className="shrink-0 text-[10px] text-[var(--tv-text-faint)]" title="图片数（含子目录）">
           {entries.length} 项
         </span>
       </div>
@@ -282,15 +298,15 @@ const FolderRow = memo(function FolderRow({
       title={`${node.relPath || node.name}（双击进入，右键菜单）`}
     >
       <span className="w-4 shrink-0" />
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-[#161616]">
-        <Folder className="h-5 w-5 text-amber-500/80" />
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-[var(--tv-well)]">
+        <FolderIcon className="h-6 w-7" />
       </span>
-      <span className="min-w-0 flex-1 truncate text-neutral-200">{node.name}</span>
-      <span className="w-24 shrink-0 text-right text-neutral-600">—</span>
-      <span className="w-24 shrink-0 text-right text-neutral-400" title="图片数（含子目录）">
+      <span className="min-w-0 flex-1 truncate text-[var(--tv-text)]">{node.name}</span>
+      <span className="w-24 shrink-0 text-right text-[var(--tv-text-faint)]">—</span>
+      <span className="w-24 shrink-0 text-right text-[var(--tv-text-dim)]" title="图片数（含子目录）">
         文件夹 · {count}
       </span>
-      <span className="w-36 shrink-0 text-right text-neutral-600">—</span>
+      <span className="w-36 shrink-0 text-right text-[var(--tv-text-faint)]">—</span>
     </div>
   )
 })
