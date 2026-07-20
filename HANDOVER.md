@@ -35,7 +35,8 @@
 
 | IPC channel | 参数 | 返回 | 说明 |
 | --- | --- | --- | --- |
-| `select-directory` | — | `string \| null` | 系统目录选择框；取消返回 null |
+| `select-directory` | — | `{path, isFile} \| null` | 系统选择框；win32 `openFile`+`openDirectory` 并用（文件/文件夹均可选），其他平台仅 openDirectory |
+| `cli-open`（主→渲染 push） | `{kind, paths, flags, isFile}` | — | **非 invoke**：`webContents.send` 下发 CLI 指令（首次启动参数与 second-instance 转发同源）；preload `onCliOpen(cb)` 订阅，返回取消函数 |
 | `scan-directory` | `(dir: string, recursive: boolean)` | `{path,name,size,lastModified}[]` | 递归收集图片（扩展名白名单 11 种）；无权限项跳过 |
 | `list-dirs` | `(dir: string)` | `{name,path,imageCount,hasSubdirs}[]` | 一层子目录（文件夹树懒加载；imageCount 为本层直接图片数） |
 | `path-ancestors` | `(dir: string)` | 同上（root-first，不含自身） | 祖先链，最多 64 级；`hasSubdirs` 恒 true |
@@ -61,7 +62,7 @@
 - 统一抽象 `ImageEntry`：`{id, name, path, size, lastModified, handle?, getUrl(), revoke()}`。
   - Electron：`id = 绝对路径`，`getUrl()` 返回 `twinview://` URL，`revoke()` 空操作；
   - 浏览器：`id = path::size::lastModified`，`getUrl()` 惰性创建 blob: URL，`revoke()` 释放。
-- `DirectorySource`：`{name, handle?（FS Access）, files?（webkitdirectory 回退）, dirPath?（Electron）}`，三种形态决定目录树与文件操作的实现分支。
+- `DirectorySource`：`{name, handle?（FS Access）, files?（webkitdirectory 回退）, dirPath?（Electron）, focusFile?（系统选择器选中文件时定位用）}`，三种形态决定目录树与文件操作的实现分支。
 - 浏览器打开时请求 `readwrite` 权限（文件操作需要）；Firefox/Safari 自动回退 `webkitdirectory`（只读）。
 
 ### 2.2 decode-cache 会话解码缓存（`src/lib/decode-cache.ts`）
@@ -140,10 +141,19 @@
 - 分片（256 行）`setTimeout(0)` 让出主线程；`ResampleHandle.cancel()` 取消（ViewerPane 调度新任务前取消旧的）；LRU 8 张（key = `条目id|算法|宽x高`，ImageBitmap，`clearResampleCache()` 全清）。
 - 源像素：decode-cache 的 bitmap 画离屏 canvas 取 `getImageData`（同探针链路，不污染 canvas）。
 
-### 2.9 打开文件夹对话框（`OpenFolderDialog.tsx` / `PendingOpenConfirm.tsx`）
+### 2.9 打开文件夹对话框（`OpenFolderDialog.tsx`，**选择即打开**）
 
-- **Electron**（`openDirectory()` → `setOpenFolderDialog(true)`）：左栏 = `special-dirs` 快捷入口 + `browse-dir` 子目录列表（含 ↑ 上级，FolderIcon + 名称 + 本层图片数）；右栏 = `dir-image-preview(dir, 12)` 缩略图（twinview://）+ 递归计数；底栏「系统对话框选择… / 取消 / 打开此文件夹」（无图禁用）。初始位置 = 当前已打开文件夹，fallback「图片」。
-- **浏览器**：FS Access 无法选前预览 → `openDirectory()` pick + 扫描后存 `pendingOpen`，`PendingOpenConfirm` 显示前 12 张 + 总数，「确认打开（confirmPendingOpen）/ 重新选择（discardPendingOpen(true)）/ 取消」。
+- **Electron**（`openDirectory()` → `setOpenFolderDialog(true)`）：左栏 = `special-dirs` 快捷入口 + `browse-dir` 子目录列表（含 ↑ 上级）；右栏 = `dir-image-preview(dir, 12)` 缩略图（twinview://）+ 递归计数。**子文件夹单击 = 选中（高亮 + 预览该目录），双击 = 进入**；「打开此文件夹」对选中项（无选中则当前位置）经 `openPathFocus` 直接生效，**无二次确认/中间态**。「系统对话框选择…」走 `select-directory`（win32 文件/文件夹均可选；选中文件 → `focusFile` → 打开所在文件夹并定位选中）。
+- **浏览器**：`openDirectory()` pick + 扫描后直接打开（第五轮的「选择后确认条」`PendingOpenConfirm` 已删除；`pendingOpen` state 与 confirm/discard actions 一并移除）。
+
+### 2.10 CLI 与单实例（`electron/main.cjs` + `appStore.applyCliOpen`）
+
+- **解析**：`parseCliArgs(argv)` 纯函数——位置参数（首个为 folder）、`--compare A B`、`--recursive`、`--theme dark|light|system`、`--layout wipe|side|overlay|grid`、`--help/-h`；未识别参数进 `warnings`（stdout 警告忽略）。argv 截取：`app.isPackaged ? slice(1) : slice(2)`（`selfCliArgv()`），容忍前导 `--`。
+- **下发**：`dispatchCli(argv, win)` 打印 warnings/help → `fs.stat` 判型（folder 的 isFile；compare 校验两文件存在）→ `webContents.send('cli-open', payload)`（窗口加载中则等 did-finish-load）。首次启动在 `whenReady` 后 dispatch（SMOKE 跳过，由冒烟自行注入）。
+- **单实例**：`requestSingleInstanceLock()`（SMOKE 跳过锁以便并行自检）；未持锁进程 `app.quit()`，持锁方 `second-instance` → 窗口 restore/focus + 转发新 argv 走同一 dispatchCli。主 `whenReady` 块也加了持锁守卫（防未持锁进程仍建窗）。
+- **渲染端**：`App.tsx` 订阅 `provider.onCliOpen` → `applyCliOpen(payload)`：flags 先应用（setTheme/setRecursive）→ folder 走 `openPathFocus`（文件时 absDirOf + 按绝对路径匹配选中 currentId）→ compare 计算 A/B 最深公共目录（盘符不同回退 A 所在目录）openPath 后按绝对路径匹配两图入槽；`--layout grid` 进网格（gridIds=[A,B]），否则进 compare（B 缺失仅设 A 槽 + ensureSlots + warn）。全程**不走任何确认弹窗**。
+- **dev 用法**：`npm run electron:cli -- <args>`（package.json 脚本 = `wait-on http://localhost:7100 && electron . --`）；`npm run electron:dev -- <args>` 不透传（concurrently 把参数当自身位置参数）。
+- **Kimi Work skill**：注册位置 `daimon-share/daimon/skills/twinview/SKILL.md` + 仓库副本 `skills/twinview/SKILL.md`，**两处内容需同步**（规约第 7 条）。
 
 ---
 
@@ -151,7 +161,7 @@
 
 **state 分组**：
 - 目录与列表：`providerKind, dir, loading, loadError, images, recursive, currentPath, treeChildren, treeExpanded, ancestors`
-- 打开对话框：`openFolderDialogOpen`（Electron 自绘对话框）、`pendingOpen`（浏览器选择后确认条）
+- 打开对话框：`openFolderDialogOpen`（Electron 自绘对话框）
 - 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize, browseMode`；勾选/剪贴板：`checked, clipboard`
 - 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell, physicalFullscreen`
 - A/B：`slotA, slotB, activeSlot, compareLayout, sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
@@ -159,7 +169,7 @@
 - 开关：`navScope, resample, theme, infoVisible, histoVisible, sidebarOpen, filmstripOpen, helpOpen`
 - 收藏/取样：`favorites({path,addedAt}[]), samples(SampleRecord[]，≤10 条，seq 自增)`
 
-**Action 分组**：打开/扫描（`openDirectory/openPath/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/navigateUp/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize/setBrowseMode`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
+**Action 分组**：打开/扫描（`openDirectory/openPath/openPathFocus/applyCliOpen/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/navigateUp/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize/setBrowseMode`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/setTheme/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
 
 **导出辅助**：`newTransform()`、`getVisibleImages(q)`（scopeOk + 格式过滤 + 排序）、`getNavList(q)`（再按 navScope==='checked' 过滤）、`preloadCurrentContext(s)`（内部：按当前视图预解码——compare=[A,B]、grid=全部格、single=当前±1）、`BROWSE_MODE_SIZE`（图标三档固定尺寸映射）。
 
@@ -214,7 +224,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **排错指引**：
 - 解码缓存行为：`localStorage.twinview.debugCache='1'` → console 看 命中/未命中/入缓存/淘汰/预算；
-- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview count=10+4 张）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
+- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview count=10+4 张）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、**CLI 注入（send cli-open：folder+file 定位选中 sub 内文件；--compare 断言 viewMode/slotA/slotB/layout/theme/recursive flag）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
 - `twinview://` 在 file:// 页面 fetch 失败是**预期**（Chromium 限制）；分析层必须走 `read-file-buffer` → blob，否则 canvas 被污染（`getImageData` 抛 SecurityError）；
 - 黑闪/闪屏类问题：先看 ViewerPane 帧模型（stale 判定、finish 时机、pin 平衡），再看 CanvasSmooth 防抖分流。
 
@@ -228,3 +238,4 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 4. 新增 UI 文案保持中文；快捷键改动需同步 `HelpOverlay.tsx` 表格与 README 快捷键表。
 5. 改 IPC 需三处同步：`electron/main.cjs`（实现）、`electron/preload.cjs`（桥接）、`src/lib/fs-provider.ts`（TwinviewBridge 类型），并更新本文 IPC 表与冒烟断言（如适用）。
 6. 新增/调整偏好一律走 `settings.ts`（`SettingsData` + `DEFAULT_SETTINGS` + `sanitize` 校验三处同步），禁止新增散落 localStorage key；新增 UI 颜色一律用 `--tv-*` 变量（黑浮层族除外，见 §2.7）。
+7. Kimi Work skill `twinview` 有两处副本：注册位置 `daimon-share/daimon/skills/twinview/SKILL.md` 与仓库副本 `skills/twinview/SKILL.md`——**改动必须两边同步**（仓库副本为准，改完拷贝覆盖注册位置）。

@@ -20,7 +20,7 @@
 | --- | --- |
 | 浏览 | 缩略图网格（懒加载）+ **显示模式四档**（大 / 中 / 小图标、列表，持久化）；**子文件夹条目**（Windows 风文件夹图标 + 预览拼贴 + 计数，双击进入）排在图片前；**面包屑路径导航**（Backspace 返回上级）；含子文件夹开关（**默认关**，持久化）、格式过滤、名称/日期/大小排序（列表模式点列头）、全选 / 清除选择、勾选、右键文件操作（复制/粘贴/新建文件夹/删除）；**系统拖放**文件/文件夹递归复制到当前目录（带投放指示层） |
 | 文件夹树 | 懒加载目录树、祖先链（Electron 可浏览上级目录）、收藏夹（持久化）、ALT 取样记录区 |
-| 打开文件夹 | Electron：自绘对话框（快捷入口 + 子目录浏览 + **所选文件夹图片计数与缩略图预览**，保留系统对话框入口）；浏览器：选择后弹出预览确认条（确认 / 重选 / 取消） |
+| 打开文件夹 | **选择即打开**（无二次确认）。Electron：自绘对话框（快捷入口 + 子目录**单击选中 / 双击进入** + 所选文件夹图片计数与缩略图预览，「打开此文件夹」直接生效；系统对话框 win32 下文件/文件夹均可选，选中文件 = 打开所在文件夹并定位）；浏览器：选择后直接打开 |
 | 主题 | 暗色 / 亮色 / 跟随系统三档（工具栏切换，持久化；Electron 窗口背景同步，首帧防闪） |
 | 单图 | 适应窗口 / 100%、滚轮锚点缩放、拖拽平移、R/L 旋转、F 应用内全屏（隐藏侧栏与胶片条） |
 | A/B 对比 | **划变**（同区域对齐 + 可拖分割线）/ **并排**（可拖比例 + 同步开关）/ **叠化**（透明度 onion-skin，可换上下层），W/G 循环；Tab 切激活侧；X 交换；N 下一对 |
@@ -92,7 +92,25 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+
+## CLI 与集成
+
+桌面版可被其他应用/脚本命令行调用（**单实例**：已运行则参数转发给现有窗口焦点前置执行，不新开窗口）：
+
+| 用法 | 行为 |
+| --- | --- |
+| `TwinView.exe <文件夹>` | 直接打开该文件夹 |
+| `TwinView.exe <图片文件>` | 打开其所在文件夹并定位/选中该文件 |
+| `TwinView.exe --compare <A> <B>` | 打开共同（或 A 的）所在文件夹，A/B 入槽进入对比 |
+| `--recursive` | 本次会话开「含子文件夹」 |
+| `--theme dark\|light\|system` | 指定主题 |
+| `--layout wipe\|side\|overlay\|grid` | 对比显示模式（配合 `--compare`） |
+| `--help` | 打印用法到 stdout |
+
+未识别参数忽略并警告到 stdout；路径不存在/不可读仅警告不动作；CLI 下发直接生效（不弹任何确认）。**dev 模式**：`npm run dev` 另开终端 `npm run electron:cli -- <args>`（或 `./node_modules/.bin/electron . -- <args>`）；`npm run electron:dev -- <args>` 不透传参数（concurrently 限制）。
+
+**Kimi Work 集成**：已注册 skill `twinview`（`daimon-share/daimon/skills/twinview/SKILL.md`，仓库副本 `skills/twinview/SKILL.md` 同步维护），Kimi 可按需通过 CLI 唤起 TwinView 浏览/对比图片。
 
 ## 持久化配置项
 
@@ -134,7 +152,9 @@ TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .
 ## 已知限制
 
 - macOS 构建**未签名**（无开发者证书）：首次打开需「右键 → 打开」绕过 Gatekeeper；仅提供 arm64（Apple Silicon）DMG
-- 浏览器模式无法访问所开文件夹的上级目录（浏览器安全模型），祖先链仅 Electron 可用；打开文件夹为「选择后确认条」而非选前预览（FS Access 限制）
+- 系统选择器的「文件/文件夹同时可选」仅 win32（`openFile`+`openDirectory` 并用）；其他平台保持仅选文件夹
+- CLI 仅桌面 Electron 形态支持（网页版无）；相对路径按调用方 cwd 解析，建议绝对路径
+- 浏览器模式无法访问所开文件夹的上级目录（浏览器安全模型），祖先链仅 Electron 可用
 - 浏览器回退模式（Firefox/Safari）：始终递归选择、目录树只能反推、**不支持写操作与拖放写入**
 - 浏览器 FS Access 的删除为 `handle.remove()` 直删、不进回收站（UI 有警示，需 Chrome 110+）；Electron 删除进回收站
 - 软件重采样（BIFant/双线性/双立方/Lanczos）为 CPU 逐像素卷积：大图连续缩放时先平滑预览、停手 ~150ms 后出精确图；canvas 目标尺寸夹取 4096px
