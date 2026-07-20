@@ -10,7 +10,7 @@
 **📦 Nightly 下载（每次 main push 自动构建，滚动覆盖）**：<https://github.com/congyong/TwinViewer/releases/tag/nightly>
 
 - Windows：`TwinView-Setup-windows-x64.exe`（NSIS 安装包，可选安装目录）
-- macOS：`TwinView-macos-arm64.dmg`（Apple Silicon，**未签名**：首次打开请「右键 → 打开」绕过 Gatekeeper）
+- macOS：`TwinView-macos-arm64.dmg`（Apple Silicon，**ad-hoc 签名**（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开）
 
 ---
 
@@ -151,7 +151,7 @@ TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .
 
 ## 已知限制
 
-- macOS 构建**未签名**（无开发者证书）：首次打开需「右键 → 打开」绕过 Gatekeeper；仅提供 arm64（Apple Silicon）DMG
+- macOS 构建为 **ad-hoc 签名**（无开发者证书，electron-builder 回退 `codesign -s -`；arm64 完全无签名会被 Gatekeeper 判「已损坏」）：首次打开需「右键 → 打开」；若仍提示已损坏，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app`；仅提供 arm64（Apple Silicon）DMG
 - 系统选择器的「文件/文件夹同时可选」仅 win32（`openFile`+`openDirectory` 并用）；其他平台保持仅选文件夹
 - CLI 仅桌面 Electron 形态支持（网页版无）；相对路径按调用方 cwd 解析，建议绝对路径
 - 浏览器模式无法访问所开文件夹的上级目录（浏览器安全模型），祖先链仅 Electron 可用

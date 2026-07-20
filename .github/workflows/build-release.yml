@@ -1,7 +1,9 @@
 # TwinView CI：push 到 main → 验证 → 双平台打包 → 滚动 nightly 预发布
 # - verify：类型检查 + 网页版构建（失败则阻断发布）
 # - release：windows-latest（NSIS x64）/ macos-latest（arm64 DMG，macos-latest 即 Apple Silicon runner；
-#   无签名证书，mac.identity=null 跳过签名，用户首次打开需「右键 → 打开」绕过 Gatekeeper）
+#   无开发者证书 → ad-hoc 签名：mac.identity 不设 + CSC_IDENTITY_AUTO_DISCOVERY=false，
+#   electron-builder 找不到证书时自动回退 ad-hoc（codesign -s -）；arm64 完全无签名会被 Gatekeeper 判「已损坏」，
+#   ad-hoc 后首次打开仍需「右键 → 打开」；注意 mac.identity=null 是**完全跳过签名**，切勿回退该配置）
 # - 发布：softprops/action-gh-release 固定 tag `nightly` 滚动覆盖同名资产，不刷屏新建 release；
 #   资产用固定名（覆盖可靠），commit SHA 写入 release 正文便于追溯
 
@@ -52,12 +54,13 @@ jobs:
         if: runner.os == 'Windows'
         run: npx electron-builder --win --x64 --publish never
 
-      - name: Package macOS DMG (arm64, unsigned)
+      - name: Package macOS DMG (arm64, ad-hoc signed)
         if: runner.os == 'macOS'
         run: npx electron-builder --mac --arm64 --publish never
         env:
-          CSC_LINK: ''
-          CSC_KEY_PASSWORD: ''
+          # 无证书环境：关自动发现 → electron-builder 回退 ad-hoc 签名（codesign -s -）
+          # （不要用 CSC_LINK='' + mac.identity=null：那是完全跳过签名，arm64 会被判「已损坏」）
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Collect artifacts (fixed names for rolling overwrite)
         shell: bash
@@ -82,5 +85,5 @@ jobs:
 
             - Commit: `${{ github.sha }}`
             - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            - macOS 构建未签名：首次打开请「右键 → 打开」绕过 Gatekeeper
+            - macOS 构建为 ad-hoc 签名（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开
           files: dist-release/*

@@ -38,8 +38,7 @@
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.photography",
-      "identity": null
+      "category": "public.app-category.photography"
     }
   },
   "dependencies": {

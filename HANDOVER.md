@@ -218,7 +218,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 ## 6. 已知限制与技术债、排错指引
 
-**已知限制**（同 README，不重复展开）：macOS/Windows 均**未签名**（Gatekeeper / SmartScreen 首次警示）；浏览器回退模式只读（含拖放）；FS Access 删除不可恢复；软件重采样为 CPU 卷积（大图停手后才出精确图）；网格 ≤9 张；数万张无虚拟滚动；旋转不写回文件。
+**已知限制**（同 README，不重复展开）：macOS 为 **ad-hoc 签名**（electron-builder 回退 `codesign -s -`，首次打开「右键 → 打开」，仍报损坏则 `xattr -dr com.apple.quarantine /Applications/TwinView.app`）、Windows **未签名**（SmartScreen 首次警示）；浏览器回退模式只读（含拖放）；FS Access 删除不可恢复；软件重采样为 CPU 卷积（大图停手后才出精确图）；网格 ≤9 张；数万张无虚拟滚动；旋转不写回文件。
 
 **技术债**：
 - `template-info.md` 为脚手架模板遗留，可删；
