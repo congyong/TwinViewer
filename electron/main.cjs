@@ -565,7 +565,7 @@ async function runSmokeTest(win) {
         store.setState({ physicalFullscreen: false })
         await wait(250)
         out.fsRestored = !!document.querySelector('[data-chrome="toolbar"]') && !!document.querySelector('aside')
-        // --- 对比槽位导航：仅勾选 2 张占满 A/B → 无副作用 + notice；切「全部」→ 步进且跳过另一槽 ---
+        // --- 对比槽位导航：仅勾选 2 张占满 A/B → 回退不跳过（A/B 同图）+ 无 notice；切「全部」→ 步进且跳过另一槽 ---
         const ids = S().images.map((e) => e.id) // 10 张，按名称序 A1..B4, sub 两张在最后（按排序）
         const [idA, idB] = ids
         store.setState({ checked: [idA, idB], navScope: 'checked' })
@@ -574,9 +574,11 @@ async function runSmokeTest(win) {
         out.cmpSetup = S().viewMode === 'compare' && S().slotA === idA && S().slotB === idB
         S().navigate(1)
         await wait(100)
-        out.checkedNoop = S().slotA === idA && typeof S().notice === 'string' && S().notice.length > 0
-        out.noticeShown = !!document.querySelector('[data-notice]')
-        store.setState({ navScope: 'all', notice: null })
+        // 仅勾选 2 张占满 A/B：跳过后无目标 → 回退为不跳过，A 步进到与 B 同图（允许重复），无 notice
+        out.checkedDupStep = S().slotA === idB && S().slotB === idB
+        out.noNotice = S().notice === null && !document.querySelector('[data-notice]')
+        store.setState({ navScope: 'all', slotA: idA, notice: null })
+        await wait(100)
         const third = ids[2]
         S().navigate(1)
         await wait(100)
@@ -599,13 +601,19 @@ async function runSmokeTest(win) {
         S().navigate(1)
         await wait(100)
         out.gridSkip = S().gridIds[0] === ids[3] // 格0: A1 → 跳过 A2/A3（格1/格2）→ ids[3]
+        // 网格回退：仅勾选 2 张占满 2 格 → 激活格步进到与其他格同图（允许重复），无 notice
+        store.setState({ gridIds: [ids[0], ids[1]], gridActiveIdx: 0, checked: [ids[0], ids[1]], navScope: 'checked', notice: null })
+        await wait(100)
+        S().navigate(1)
+        await wait(100)
+        out.gridDupStep = S().gridIds[0] === ids[1] && S().gridIds[1] === ids[1] && S().notice === null
         // 复位（不干扰截图）
         store.setState({ viewMode: 'browse', gridIds: [], checked: [], notice: null })
         S().setViewMode('browse')
         await wait(200)
         out.ok = out.chromeBefore.toolbar && out.chromeBefore.aside && out.fsHidden && out.fsRestored &&
-          out.cmpSetup && out.checkedNoop && out.noticeShown && out.allStep && out.allStep2 &&
-          out.activeBStep && out.swapOk && out.gridSkip
+          out.cmpSetup && out.checkedDupStep && out.noNotice && out.allStep && out.allStep2 &&
+          out.activeBStep && out.swapOk && out.gridSkip && out.gridDupStep
         return out
       })()`)
       console.log(`[SMOKE] 真全屏布局+槽位导航: ${JSON.stringify(navAssert)}`)

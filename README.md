@@ -46,7 +46,7 @@
 
 | 按键 | 功能 |
 | --- | --- |
-| ← / → 或 PgUp / PgDn | 上一张 / 下一张（按当前导航范围循环）。单图：切当前图；**对比：切激活槽位的图**（Tab 切激活侧，跳过另一槽占据项；无可切换时弹一次性提示，如仅勾选 2 张占满 A/B）；**网格：切激活格**（跳过其他格占据项） |
+| ← / → 或 PgUp / PgDn | 上一张 / 下一张（按当前导航范围循环）。单图：切当前图；**对比：切激活槽位的图**（Tab 切激活侧，优先跳过另一槽占据项；集合内无其他项时允许与另一槽同图，如仅勾选 2 张占满 A/B）；**网格：切激活格**（优先跳过其他格占据项，无其他项时同样允许同图） |
 | R / L | 向右 / 向左旋转 90°（仅视图层，不写文件） |
 | F | 单图 / 对比 / 网格 = 进入或退出对应单格全屏（控件内） |
 | Shift+F | 单格全屏中切换物理全屏（隐藏浏览器 / 窗口边框） |
@@ -92,7 +92,7 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选 noop+提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
 
 ## CLI 与集成
 

@@ -726,36 +726,31 @@ export const useAppStore = create<AppState>()((set, get) => ({
       }
       return nav[idx].id // 集合内除被占据项外无其他项：无处可去，保持
     }
-    /** 按键无副作用时的一次性提示（避免用户以为按键失效） */
-    const noticeNoop = (occupied: string) => {
-      get().showNotice(
-        s.navScope === 'checked'
-          ? `仅勾选 ${nav.length} 张，${occupied}，无可切换项；切到「全部」可浏览更多`
-          : `集合内没有可切换的图片（${occupied}）`,
-      )
-    }
     if (s.viewMode === 'compare') {
-      // ←/→ 永远作用于**激活槽位**（Tab 切换），跳过另一侧槽位占据的图
+      // ←/→ 永远作用于**激活槽位**（Tab 切换），优先跳过另一侧槽位占据的图；
+      // 跳过后无目标时回退为不跳过（允许 A/B 同图）；集合仅 1 张且当前就在该图时静默 noop
       const other = s.activeSlot === 'A' ? s.slotB : s.slotA
       const cur = s.activeSlot === 'A' ? s.slotA : s.slotB
-      const next = stepIdSkipping(cur, (id) => id === other)
-      if (next === cur) {
-        noticeNoop('另一槽位已占据其余图片')
-        return
-      }
+      let next = stepIdSkipping(cur, (id) => id === other)
+      if (next === cur) next = stepId(cur) // 回退：允许与另一槽重复
+      if (next === cur) return
       set(s.activeSlot === 'A' ? { slotA: next } : { slotB: next })
     } else if (s.viewMode === 'single') {
       set({ currentId: stepId(s.currentId) })
     } else if (s.viewMode === 'grid' && s.gridIds.length > 0) {
-      // ←/→ 作用于**激活格**（Tab/数字键切换），跳过其他格占据的图
+      // ←/→ 作用于**激活格**（Tab/数字键切换），优先跳过其他格占据的图；
+      // 跳过后无目标时回退为不跳过（允许与其他格同图）；集合仅 1 张时静默 noop
       const others = new Set(s.gridIds.filter((_, i) => i !== s.gridActiveIdx))
       const cur = s.gridIds[s.gridActiveIdx] ?? null
-      const next = stepIdSkipping(cur, (id) => others.has(id))
-      if (next === cur) {
-        noticeNoop('其他格已占据其余图片')
-        return
-      }
-      get().setGridCellImage(s.gridActiveIdx, next)
+      let next = stepIdSkipping(cur, (id) => others.has(id))
+      if (next === cur) next = stepId(cur) // 回退：允许与其他格重复
+      if (next === cur) return
+      // 直接写入而非 setGridCellImage：后者对「目标 id 已在其他格」做交换（胶片条指派的既有语义），
+      // 回退同图场景必须允许重复；正常跳过路径下 next 不在 others 中，直接写入与 setGridCellImage 等价
+      const gridIds = [...s.gridIds]
+      gridIds[s.gridActiveIdx] = next
+      set({ gridIds })
+      preloadCurrentContext(get())
       return
     }
     preloadCurrentContext(get())
