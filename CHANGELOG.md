@@ -5,6 +5,25 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-07-21
+
+### 新增
+
+- **差值热图对比布局**（A/B 对比第 4 种布局）：`D` 键开关（进入时记住当前布局，再按 D 还原；W/G 仍只循环前三种）；逐像素三通道 max abs diff，**≤容差置黑**，其余归一后过 colormap；四种色带 **inferno / gray / viridis / coolwarm**（coolwarm 为标准发散 LUT：中点近白、两端深蓝深红）+ 容差 0–128；B 图经 canvas 平滑缩放到 A 尺寸对齐，缩放 / 平移不重算，源图 / 容差 / 色带变化才重算（100ms 防抖）
+- 差值**配置面板仅 diff 激活时显示**：colormap 下拉 + 容差滑块 / 数值输入，`diffColormap` / `diffTolerance` 持久化到设置
+- **显示区录制**（`S` 键 / 工具栏按钮）：3 秒倒计时胶囊（再按 S 取消）→ 红点计时徽标录制 → 3 秒停止倒计时（期间继续录，再按 S 取消停止）→ 保存对话框；格式 **MP4 / GIF** + 画质 高 / 中 / 低 三档；Electron 经 desktopCapturer 采集本窗口并按显示区 rect 镜像裁剪（15fps 上屏），GIF 走 gifenc（10fps）；上限 10 分钟自动停，视图切换自动停止并释放采集
+
+### 修复
+
+- diff colormap 可选列表单一来源化：`DIFF_COLORMAP_VALUES`（inferno / gray / viridis / coolwarm，顺序固定）由 settings 导出，设置校验 / 工具栏下拉 / 冒烟断言三处共用，杜绝列表漂移
+
+### 已知限制
+
+- GIF 为 10fps、最多取录制末尾 30 秒（环形 300 帧缓冲）；视频码率按画质档于录制开始时确定（保存对话框中改画质只影响 GIF 与下次录制）
+- MP4 容器依赖 Chromium 的 MediaRecorder 支持，不可用时自动回退 **WebM**（UI 明示）
+- diff 差值布局下 ALT 颜色探针不可用（显示的是合成热图而非源图）
+- 录制采集整个本窗口再裁剪：录不到系统声音；窗口被最小化 / 遮挡区域画面由系统合成器决定；浏览器模式经 getDisplayMedia 采集（可能包含浏览器 UI），保存 = 触发下载（无法选择位置）
+
 ## [0.1.1] - 2026-07-20
 
 ### 新增
@@ -80,5 +99,6 @@
 - macOS DMG 改 ad-hoc 签名，修复 arm64「已损坏，无法打开」（首次打开仍需「右键 → 打开」）
 - 对比模式 X 交换失效修复；仅勾选导航允许槽位重复（移除误报提示）
 
+[0.2.0]: https://github.com/congyong/TwinViewer/releases/tag/v0.2.0
 [0.1.1]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.1
 [0.1.0]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.0
