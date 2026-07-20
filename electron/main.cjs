@@ -808,8 +808,9 @@ async function runSmokeTest(win) {
         return fail(`树点击回浏览不符预期: ${JSON.stringify(treeAssert)}`)
       }
 
-      // a.12) 差值热图：UI 挂载（配置面板+diff canvas）+ 同图全黑 + 异图非黑 +
-      //       单元级（合成位图）：容差单调抑制与置黑阈值、colormap 切换结果不同
+      // a.12) 差值热图：UI 挂载（配置面板+滑块+diff canvas）+ 同图全黑 + 异图非黑 + 滑块联动 store +
+      //       面板仅 diff 可见 + 单元级（合成位图）：容差单调抑制与置黑阈值、四种必需 colormap
+      //       （inferno/gray/viridis/coolwarm）齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差
       const diffAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
         const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -832,8 +833,30 @@ async function runSmokeTest(win) {
         store.setState({ slotA: ids[0], slotB: ids[0] })
         await wait(800)
         out.sameBlack = center().every((v) => v === 0)
+        // 容差滑块：面板内含 range 滑块 + 数值输入，且拖动滑块联动 store
+        const slider = document.querySelector('[data-diff-tolerance]')
+        out.sliderShown = !!slider && slider.type === 'range' && !!document.querySelector('[data-diff-tolerance-num]')
+        if (slider) {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+          setter.call(slider, '80')
+          slider.dispatchEvent(new Event('input', { bubbles: true }))
+          await wait(200)
+          out.sliderWired = S().diffTolerance === 80
+          store.setState({ diffTolerance: 16 })
+          await wait(300)
+        } else {
+          out.sliderWired = false
+        }
+        // 面板仅 diff 布局可见：切到并排即隐藏，切回 diff 即显示
+        store.setState({ compareLayout: 'side' })
+        await wait(300)
+        out.panelHiddenOutsideDiff = !document.querySelector('[data-diff-panel]')
+        store.setState({ compareLayout: 'diff' })
+        await wait(500)
+        out.panelBackInDiff = !!document.querySelector('[data-diff-panel]')
         // 单元级：合成位图精确验证（d=100 恒定）
-        const { computeDiffBitmap } = await import('/src/lib/diffmap.ts')
+        const { computeDiffBitmap, getDiffLut } = await import('/src/lib/diffmap.ts')
+        const { DIFF_COLORMAP_VALUES } = await import('/src/lib/settings.ts')
         const mk = async (rgb) => {
           const c = document.createElement('canvas'); c.width = 4; c.height = 4
           const x = c.getContext('2d'); x.fillStyle = rgb; x.fillRect(0, 0, 4, 4)
@@ -850,6 +873,24 @@ async function runSmokeTest(win) {
         const g64 = await read(await computeDiffBitmap(bmpA, bmpB, 64, 'gray'))
         const g100 = await read(await computeDiffBitmap(bmpA, bmpB, 100, 'gray'))
         out.tolEffect = g16[0] > g64[0] && g64[0] > 0 && g100.every((v) => v === 0)
+        // gray 消色差：计算输出与 LUT 抽查均 R=G=B
+        const gl = getDiffLut('gray')
+        out.grayAchromatic = g16[0] === g16[1] && g16[1] === g16[2] &&
+          [0, 64, 128, 192, 255].every((i) => gl[i * 3] === gl[i * 3 + 1] && gl[i * 3 + 1] === gl[i * 3 + 2])
+        // coolwarm 发散：中点近白；左端偏蓝、右端偏红
+        const cl = getDiffLut('coolwarm')
+        const mid = [cl[128 * 3], cl[128 * 3 + 1], cl[128 * 3 + 2]]
+        out.coolwarmMidWhite = mid.every((v) => v >= 200)
+        out.coolwarmEnds = cl[2] > cl[0] && cl[255 * 3] > cl[255 * 3 + 2]
+        // 四种必需 colormap：单一来源列表齐全且顺序在前（inferno/gray/viridis/coolwarm），且均可切换生效
+        out.cmapsListed = JSON.stringify(DIFF_COLORMAP_VALUES.slice(0, 4)) === JSON.stringify(['inferno', 'gray', 'viridis', 'coolwarm'])
+        out.cmapsSwitchable = true
+        for (const cm of DIFF_COLORMAP_VALUES) {
+          S().setDiffColormap(cm)
+          const lut = getDiffLut(cm)
+          if (S().diffColormap !== cm || !lut || lut.length !== 768) out.cmapsSwitchable = false
+        }
+        S().setDiffColormap('inferno')
         const ci = await read(await computeDiffBitmap(bmpA, bmpB, 16, 'inferno'))
         const cv = await read(await computeDiffBitmap(bmpA, bmpB, 16, 'viridis'))
         out.cmapDiffers = ci.some((v, i) => v !== cv[i])
@@ -858,7 +899,10 @@ async function runSmokeTest(win) {
         store.setState({ viewMode: 'browse', compareLayout: 'side', slotA: null, slotB: null, diffTolerance: 16, diffColormap: 'inferno' })
         S().setViewMode('browse')
         await wait(200)
-        out.ok = out.panelShown && out.canvasShown && out.diffNonBlack && out.sameBlack && out.tolEffect && out.cmapDiffers
+        out.ok = out.panelShown && out.canvasShown && out.diffNonBlack && out.sameBlack &&
+          out.sliderShown && out.sliderWired && out.panelHiddenOutsideDiff && out.panelBackInDiff &&
+          out.tolEffect && out.grayAchromatic && out.coolwarmMidWhite && out.coolwarmEnds &&
+          out.cmapsListed && out.cmapsSwitchable && out.cmapDiffers
         return out
       })()`)
       console.log(`[SMOKE] 差值热图: ${JSON.stringify(diffAssert)}`)

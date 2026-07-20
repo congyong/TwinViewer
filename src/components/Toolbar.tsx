@@ -55,12 +55,20 @@ const GRID_LAYOUTS: { value: GridLayout; label: string }[] = [
   { value: '3x3', label: '3 × 3' },
 ]
 
-const DIFF_COLORMAPS: { value: DiffColormap; label: string }[] = [
-  { value: 'inferno', label: 'Inferno' },
-  { value: 'gray', label: 'Gray（灰度）' },
-  { value: 'viridis', label: 'Viridis' },
-  { value: 'coolwarm', label: 'Coolwarm（发散）' },
-]
+import { DIFF_COLORMAP_VALUES } from '@/lib/settings'
+
+const DIFF_COLORMAP_LABELS: Record<DiffColormap, string> = {
+  inferno: 'Inferno',
+  gray: 'Gray（灰度）',
+  viridis: 'Viridis',
+  coolwarm: 'Coolwarm（发散）',
+}
+
+/** 顺序与设置校验/冒烟共用同一来源（DIFF_COLORMAP_VALUES）：inferno / gray / viridis / coolwarm 在前 */
+const DIFF_COLORMAPS: { value: DiffColormap; label: string }[] = DIFF_COLORMAP_VALUES.map((v) => ({
+  value: v,
+  label: DIFF_COLORMAP_LABELS[v],
+}))
 
 const SORT_ITEMS: { value: SortKey; label: string }[] = [
   { value: 'name', label: '按名称' },

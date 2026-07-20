@@ -92,7 +92,8 @@ const RESAMPLE_VALUES: ResampleMode[] = ['auto', 'nearest', 'bifant', 'bilinear'
 const BROWSE_VALUES: BrowseMode[] = ['large', 'medium', 'small', 'list']
 const SORT_VALUES: SortKey[] = ['name', 'lastModified', 'size']
 const LAYOUT_VALUES: CompareLayout[] = ['wipe', 'side', 'overlay', 'diff']
-const DIFF_COLORMAP_VALUES: DiffColormap[] = ['inferno', 'gray', 'viridis', 'coolwarm']
+/** 差值热图 colormap 可选值（顺序即下拉顺序：四种必需色带在前，单一来源供设置校验/工具栏/冒烟共用） */
+export const DIFF_COLORMAP_VALUES: DiffColormap[] = ['inferno', 'gray', 'viridis', 'coolwarm']
 const THEME_VALUES: ThemeMode[] = ['dark', 'light', 'system']
 
 function clamp01(v: number, min: number, max: number): number {
