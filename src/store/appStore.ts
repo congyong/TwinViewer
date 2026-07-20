@@ -9,12 +9,14 @@ import { create } from 'zustand'
 import type { DirectorySource, ImageEntry } from '@/lib/fs-provider'
 import { getFSProvider, getExtension, isElectron } from '@/lib/fs-provider'
 import type { DirNode } from '@/lib/dir-tree'
-import { fsAccessChildren, fallbackChildren, isAbsPath, normalizeSlashes, scopeOk } from '@/lib/dir-tree'
+import { fsAccessChildren, fallbackChildren, absDirOf, isAbsPath, normalizeSlashes, scopeOk } from '@/lib/dir-tree'
 import { clamp } from '@/lib/format'
 import { clearDecodeSession, preloadDecode } from '@/lib/decode-cache'
 import { clearProbeCache } from '@/lib/pixel-probe'
 
 export type ViewMode = 'browse' | 'single' | 'compare' | 'grid'
+/** 浏览网格显示模式：大 / 中 / 小图标三档固定尺寸 + 列表 */
+export type BrowseMode = 'large' | 'medium' | 'small' | 'list'
 export type SortKey = 'name' | 'lastModified' | 'size'
 export type ResampleMode = 'auto' | 'nearest' | 'bilinear' | 'bicubic'
 export type CompareLayout = 'wipe' | 'side' | 'overlay'
@@ -114,6 +116,14 @@ const RESAMPLE_KEY = 'twinview.resample'
 const NAVSCOPE_KEY = 'twinview.navScope'
 const LAYOUT_KEY = 'twinview.compareLayout'
 const HISTO_KEY = 'twinview.histoVisible'
+const BROWSE_MODE_KEY = 'twinview.browseMode'
+
+/** 浏览模式三档图标档对应的固定缩略图尺寸（列表档不修改 thumbSize） */
+export const BROWSE_MODE_SIZE: Record<Exclude<BrowseMode, 'list'>, number> = {
+  large: 256,
+  medium: 168,
+  small: 112,
+}
 
 function loadFavorites(): FavoriteItem[] {
   try {
@@ -173,6 +183,15 @@ function loadHistoVisible(): boolean {
     return localStorage.getItem(HISTO_KEY) === '1'
   } catch {
     return false
+  }
+}
+
+function loadBrowseMode(): BrowseMode {
+  try {
+    const v = localStorage.getItem(BROWSE_MODE_KEY)
+    return v === 'large' || v === 'small' || v === 'list' ? v : 'medium'
+  } catch {
+    return 'medium'
   }
 }
 
@@ -241,6 +260,7 @@ export interface AppState {
   sortKey: SortKey
   sortAsc: boolean
   thumbSize: number
+  browseMode: BrowseMode
   checked: string[]
   clipboard: string[]
   viewMode: ViewMode
@@ -287,6 +307,8 @@ export interface AppState {
   setSortKey: (v: SortKey) => void
   toggleSortAsc: () => void
   setThumbSize: (v: number) => void
+  setBrowseMode: (m: BrowseMode) => void
+  navigateUp: () => void
   toggleChecked: (id: string) => void
   checkAll: () => void
   clearChecked: () => void
@@ -338,6 +360,9 @@ export interface AppState {
   revokeAll: () => void
 }
 
+/** 初始浏览模式（读一次 localStorage；列表档时 thumbSize 回退中档尺寸） */
+const initialBrowseMode = loadBrowseMode()
+
 export const useAppStore = create<AppState>()((set, get) => ({
   providerKind: getFSProvider().kind,
   dir: null,
@@ -352,7 +377,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   formatFilter: 'all',
   sortKey: 'name',
   sortAsc: true,
-  thumbSize: 168,
+  thumbSize: BROWSE_MODE_SIZE[initialBrowseMode === 'list' ? 'medium' : initialBrowseMode],
+  browseMode: initialBrowseMode,
   checked: [],
   clipboard: [],
   viewMode: 'browse',
@@ -503,6 +529,26 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setSortKey: (v) => set({ sortKey: v }),
   toggleSortAsc: () => set((s) => ({ sortAsc: !s.sortAsc })),
   setThumbSize: (v) => set({ thumbSize: v }),
+
+  setBrowseMode: (m) => {
+    savePref(BROWSE_MODE_KEY, m)
+    // 图标档写入对应固定尺寸；列表档保留当前 thumbSize 以便切回
+    if (m !== 'list') set({ browseMode: m, thumbSize: BROWSE_MODE_SIZE[m] })
+    else set({ browseMode: m })
+  },
+
+  // 返回上级目录：相对路径逐段回退到根（''）；祖先链绝对路径逐级向上
+  navigateUp: () => {
+    const { currentPath } = get()
+    if (!currentPath) return
+    if (isAbsPath(currentPath)) {
+      const parent = absDirOf(currentPath)
+      if (normalizeSlashes(parent) !== normalizeSlashes(currentPath)) set({ currentPath: parent })
+      return
+    }
+    const i = currentPath.lastIndexOf('/')
+    set({ currentPath: i < 0 ? '' : currentPath.slice(0, i) })
+  },
 
   toggleChecked: (id) =>
     set((s) => ({
@@ -829,6 +875,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
     for (const e of get().images) e.revoke()
   },
 }))
+
+// 仅开发模式暴露 store 句柄（Electron 冒烟测试 / 控制台调试；生产构建由 Rollup 消除）
+if (import.meta.env.DEV) {
+  ;(window as unknown as Record<string, unknown>).__twinviewStore = useAppStore
+}
 
 /** Electron 主进程桥可用性（调试/展示用） */
 export function runningInElectron(): boolean {

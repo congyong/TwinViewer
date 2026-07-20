@@ -275,6 +275,48 @@ async function runSmokeTest(win) {
         return fail(`文件操作 IPC 不符预期: ${JSON.stringify(ops)}`)
       }
 
+      // a.6) UI 验证：自动打开测试目录 → 子文件夹卡片 / 面包屑 / 列表模式 / Backspace 返回
+      const ui = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        if (!store) return { ok: false, step: 'no __twinviewStore（需 dev 构建）' }
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        await store.getState().openPath(${JSON.stringify(SMOKE_TEST_DIR)})
+        for (let i = 0; i < 50; i++) {
+          const s = store.getState()
+          if (!s.loading && s.images.length > 0 && s.treeChildren['']) break
+          await wait(100)
+        }
+        const s = store.getState()
+        const out = { images: s.images.length }
+        out.hasSubdirNode = (s.treeChildren[''] || []).some((n) => n.name === 'sub')
+        out.breadcrumb = document.querySelector('nav') !== null
+        await wait(400)
+        out.folderCards = document.querySelectorAll('[data-folder]').length
+        // 切列表模式：图片行 + 文件夹行
+        s.setBrowseMode('list')
+        await wait(300)
+        out.listRows = document.querySelectorAll('[data-thumb]').length
+        out.listFolderRows = document.querySelectorAll('[data-folder]').length
+        // 进入 sub 子目录：面包屑应出现第二段
+        s.setCurrentPath('sub')
+        await wait(200)
+        out.crumbsAfterEnter = document.querySelectorAll('nav button').length
+        // Backspace 等价操作：返回根
+        s.navigateUp()
+        out.backToRoot = store.getState().currentPath === ''
+        s.setBrowseMode('medium')
+        await wait(200)
+        out.ok = out.images === 10 && out.hasSubdirNode && out.breadcrumb &&
+          out.folderCards >= 1 && out.listRows === 10 && out.listFolderRows >= 1 &&
+          out.crumbsAfterEnter >= 2 && out.backToRoot
+        return out
+      })()`)
+      console.log(`[SMOKE] UI 验证: ${JSON.stringify(ui)}`)
+      if (!ui.ok) {
+        clearTimeout(killer)
+        return fail(`UI 验证不符预期: ${JSON.stringify(ui)}`)
+      }
+
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
       await new Promise((r) => setTimeout(r, 3000))
       let image = null

@@ -98,6 +98,9 @@ export function useKeyboard() {
         if (key === 'enter') {
           if (s.currentId) s.enterSingle(s.currentId)
           e.preventDefault()
+        } else if (key === 'backspace') {
+          s.navigateUp()
+          e.preventDefault()
         } else if (key === 'a' || key === 'b') {
           s.assignCurrentToSlot(key.toUpperCase() as 'A' | 'B')
           e.preventDefault()

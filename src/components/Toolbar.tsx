@@ -6,11 +6,14 @@ import {
   CircleHelp,
   Columns2,
   FolderOpen,
+  Grid2X2,
   Grid3X3,
   Image as ImageIcon,
   Images,
   Info,
   Layers,
+  LayoutGrid,
+  List,
   ListFilter,
   PanelBottom,
   PanelLeft,
@@ -21,7 +24,7 @@ import {
 } from 'lucide-react'
 import { getExtension } from '@/lib/fs-provider'
 import { useAppStore } from '@/store/appStore'
-import type { CompareLayout, GridLayout, ResampleMode, SortKey } from '@/store/appStore'
+import type { BrowseMode, CompareLayout, GridLayout, ResampleMode, SortKey } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -62,8 +65,8 @@ export function Toolbar() {
   const setSortKey = useAppStore((s) => s.setSortKey)
   const sortAsc = useAppStore((s) => s.sortAsc)
   const toggleSortAsc = useAppStore((s) => s.toggleSortAsc)
-  const thumbSize = useAppStore((s) => s.thumbSize)
-  const setThumbSize = useAppStore((s) => s.setThumbSize)
+  const browseMode = useAppStore((s) => s.browseMode)
+  const setBrowseMode = useAppStore((s) => s.setBrowseMode)
   const viewMode = useAppStore((s) => s.viewMode)
   const setViewMode = useAppStore((s) => s.setViewMode)
   const compareLayout = useAppStore((s) => s.compareLayout)
@@ -158,16 +161,28 @@ export function Toolbar() {
         <ArrowUpDown className="h-3.5 w-3.5" />
       </Button>
       {viewMode === 'browse' && (
-        <input
-          type="range"
-          min={96}
-          max={320}
-          step={8}
-          value={thumbSize}
-          onChange={(e) => setThumbSize(Number(e.target.value))}
-          className="h-7 w-24 accent-sky-500"
-          title="缩略图大小"
-        />
+        <ToggleGroup
+          type="single"
+          value={browseMode}
+          onValueChange={(v) => {
+            if (v) setBrowseMode(v as BrowseMode)
+          }}
+          className="gap-0"
+          title="浏览显示模式"
+        >
+          <ToggleGroupItem value="large" className="h-7 w-7 p-0" title="大图标">
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="medium" className="h-7 w-7 p-0" title="中图标">
+            <Grid2X2 className="h-3.5 w-3.5" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="small" className="h-7 w-7 p-0" title="小图标">
+            <Grid3X3 className="h-3.5 w-3.5" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="list" className="h-7 w-7 p-0" title="列表">
+            <List className="h-3.5 w-3.5" />
+          </ToggleGroupItem>
+        </ToggleGroup>
       )}
 
       <div className="h-4 w-px bg-neutral-700" />

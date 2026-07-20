@@ -14,6 +14,8 @@ const SHORTCUTS: { keys: string; desc: string }[] = [
   { keys: '拖拽', desc: '平移图片' },
   { keys: 'I', desc: '显示 / 隐藏信息浮层（基本 + EXIF；直方图由工具栏独立开关）' },
   { keys: '空格', desc: '勾选 / 取消勾选当前图片' },
+  { keys: 'Backspace', desc: '浏览模式：返回上级文件夹（与面包屑 / 文件夹树状态一致）' },
+  { keys: '双击文件夹', desc: '进入该文件夹（网格 / 列表中文件夹排在图片前，带预览拼贴与计数）' },
   { keys: 'A / B', desc: '浏览 / 单图：把当前图片设为 A / B 槽；对比：选定激活侧' },
   { keys: 'Tab', desc: '对比：切换激活侧（A ↔ B）；网格：循环激活格' },
   { keys: 'X', desc: '交换 A/B' },
