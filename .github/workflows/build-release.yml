@@ -1,0 +1,86 @@
+# TwinView CI：push 到 main → 验证 → 双平台打包 → 滚动 nightly 预发布
+# - verify：类型检查 + 网页版构建（失败则阻断发布）
+# - release：windows-latest（NSIS x64）/ macos-latest（arm64 DMG，macos-latest 即 Apple Silicon runner；
+#   无签名证书，mac.identity=null 跳过签名，用户首次打开需「右键 → 打开」绕过 Gatekeeper）
+# - 发布：softprops/action-gh-release 固定 tag `nightly` 滚动覆盖同名资产，不刷屏新建 release；
+#   资产用固定名（覆盖可靠），commit SHA 写入 release 正文便于追溯
+
+name: build-release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify (typecheck + web build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npx tsc -p tsconfig.app.json --noEmit
+      - name: Web build
+        run: npm run build
+
+  release:
+    name: Package & publish nightly (${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Package Windows NSIS (x64)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Package macOS DMG (arm64, unsigned)
+        if: runner.os == 'macOS'
+        run: npx electron-builder --mac --arm64 --publish never
+        env:
+          CSC_LINK: ''
+          CSC_KEY_PASSWORD: ''
+
+      - name: Collect artifacts (fixed names for rolling overwrite)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp release/*.exe "dist-release/TwinView-Setup-windows-x64.exe"
+          else
+            cp release/*.dmg "dist-release/TwinView-macos-arm64.dmg"
+          fi
+          ls -lh dist-release
+
+      - name: Upload to rolling nightly prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build (main)
+          prerelease: true
+          body: |
+            滚动预发布：每次 main 分支 push 自动重建并覆盖同名资产。
+
+            - Commit: `${{ github.sha }}`
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - macOS 构建未签名：首次打开请「右键 → 打开」绕过 Gatekeeper
+          files: dist-release/*
