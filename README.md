@@ -29,7 +29,7 @@
 | 缩放算法 | 自动 / 邻近 / **BIFant\* / 双线性\* / 双立方\* / Lanczos-3\***（\*为软件精确重采样：浏览时平滑预览，停手 ~150ms 后 CPU 可分离卷积精确重绘，LRU 缓存 8 张；**切算法零解码**） |
 | ALT 颜色探针 | 按住 ALT 显示原图坐标 + RGB(A) 浮签（经 transform 逆映射，含旋转）；ALT+单击记入侧栏取样列表（≤10 条） |
 | 信息浮层 | 基本信息 + EXIF（exifr，按图缓存）；独立开关的直方图（220×100，带值域刻度） |
-| 全屏双模式 | 控件内单格全屏（默认）+ 物理全屏（Fullscreen API，Shift+F，迷你条按钮）；物理全屏下迷你条为**悬浮胶囊**（顶部热区淡入、移开淡出）；Esc 逐级退出 |
+| 全屏双模式 | 控件内单格全屏（默认）+ 物理全屏（Fullscreen API，Shift+F，迷你条按钮）；**物理全屏 = 真全屏**：卸载工具栏/侧栏/胶片条等一切应用 chrome，只留图像 + 信息浮层/直方图（若开启）+ 悬浮半透明迷你条（顶部热区淡入淡出，含「退出物理全屏」）；退出后恢复原面板可见性（fullscreenchange 同步，Esc 退出同样恢复） |
 | 文件操作 | Electron 走 IPC（删除进回收站；拖放走主进程递归复制）；浏览器 FS Access 走句柄（删除为直删有警示；拖放经 `webkitGetAsEntry` 递归写入，带进度提示）；webkitdirectory 回退禁用写操作 |
 
 ## 截图
@@ -46,7 +46,7 @@
 
 | 按键 | 功能 |
 | --- | --- |
-| ← / → 或 PgUp / PgDn | 上一张 / 下一张（按当前导航范围循环；对比换激活侧，网格换激活格图片） |
+| ← / → 或 PgUp / PgDn | 上一张 / 下一张（按当前导航范围循环）。单图：切当前图；**对比：切激活槽位的图**（Tab 切激活侧，跳过另一槽占据项；无可切换时弹一次性提示，如仅勾选 2 张占满 A/B）；**网格：切激活格**（跳过其他格占据项） |
 | R / L | 向右 / 向左旋转 90°（仅视图层，不写文件） |
 | F | 单图 / 对比 / 网格 = 进入或退出对应单格全屏（控件内） |
 | Shift+F | 单格全屏中切换物理全屏（隐藏浏览器 / 窗口边框） |
@@ -92,7 +92,7 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选 noop+提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
 
 ## CLI 与集成
 

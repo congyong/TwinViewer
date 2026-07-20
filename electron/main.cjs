@@ -543,6 +543,77 @@ async function runSmokeTest(win) {
         return fail(`CLI compare 注入不符预期: ${JSON.stringify(cliCompare)}`)
       }
 
+      // a.8) 真全屏布局 + 对比/网格槽位导航（状态级模拟；不依赖 headless Fullscreen API）
+      const navAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        // --- 真全屏：physicalFullscreen=true → chrome 卸载；false → 恢复 ---
+        S().setViewMode('browse')
+        await wait(200)
+        out.chromeBefore = {
+          toolbar: !!document.querySelector('[data-chrome="toolbar"]'),
+          aside: !!document.querySelector('aside'),
+        }
+        store.setState({ physicalFullscreen: true })
+        await wait(250)
+        out.fsHidden =
+          !document.querySelector('[data-chrome="toolbar"]') &&
+          !document.querySelector('aside') &&
+          !document.querySelector('[data-chrome="filmstrip"]')
+        store.setState({ physicalFullscreen: false })
+        await wait(250)
+        out.fsRestored = !!document.querySelector('[data-chrome="toolbar"]') && !!document.querySelector('aside')
+        // --- 对比槽位导航：仅勾选 2 张占满 A/B → 无副作用 + notice；切「全部」→ 步进且跳过另一槽 ---
+        const ids = S().images.map((e) => e.id) // 10 张，按名称序 A1..B4, sub 两张在最后（按排序）
+        const [idA, idB] = ids
+        store.setState({ checked: [idA, idB], navScope: 'checked' })
+        S().startCompareFromChecked()
+        await wait(250)
+        out.cmpSetup = S().viewMode === 'compare' && S().slotA === idA && S().slotB === idB
+        S().navigate(1)
+        await wait(100)
+        out.checkedNoop = S().slotA === idA && typeof S().notice === 'string' && S().notice.length > 0
+        out.noticeShown = !!document.querySelector('[data-notice]')
+        store.setState({ navScope: 'all', notice: null })
+        const third = ids[2]
+        S().navigate(1)
+        await wait(100)
+        out.allStep = S().slotA === third // A1 → 跳过 A2（B 槽）→ 第三张
+        S().navigate(1)
+        await wait(100)
+        out.allStep2 = S().slotA === ids[3]
+        // 激活侧切到 B：Tab 等价（此时 A=ids[3]，B=ids[1]；B 步进 → ids[2] 未被占据）
+        S().toggleActiveSlot()
+        S().navigate(1)
+        await wait(100)
+        out.activeBStep = S().slotB === ids[2] && S().slotA === ids[3]
+        // X 交换不回归
+        S().swapSlots()
+        out.swapOk = S().slotA === ids[2] && S().slotB === ids[3]
+        // --- 网格：激活格步进跳过其他格占据项 ---
+        const g = [ids[0], ids[1], ids[2]]
+        store.setState({ viewMode: 'grid', gridIds: g, gridActiveIdx: 0, checked: [], navScope: 'all', notice: null })
+        await wait(150)
+        S().navigate(1)
+        await wait(100)
+        out.gridSkip = S().gridIds[0] === ids[3] // 格0: A1 → 跳过 A2/A3（格1/格2）→ ids[3]
+        // 复位（不干扰截图）
+        store.setState({ viewMode: 'browse', gridIds: [], checked: [], notice: null })
+        S().setViewMode('browse')
+        await wait(200)
+        out.ok = out.chromeBefore.toolbar && out.chromeBefore.aside && out.fsHidden && out.fsRestored &&
+          out.cmpSetup && out.checkedNoop && out.noticeShown && out.allStep && out.allStep2 &&
+          out.activeBStep && out.swapOk && out.gridSkip
+        return out
+      })()`)
+      console.log(`[SMOKE] 真全屏布局+槽位导航: ${JSON.stringify(navAssert)}`)
+      if (!navAssert.ok) {
+        clearTimeout(killer)
+        return fail(`真全屏/槽位导航不符预期: ${JSON.stringify(navAssert)}`)
+      }
+
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
       await new Promise((r) => setTimeout(r, 3000))
       let image = null
