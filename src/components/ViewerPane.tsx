@@ -531,6 +531,7 @@ export function ViewerPane({
   return (
     <div
       ref={containerRef}
+      data-view-pane
       className={cn(
         'relative select-none overflow-hidden bg-[var(--tv-well)]',
         active && 'ring-2 ring-inset ring-sky-500',
@@ -595,7 +596,7 @@ export function ViewerPane({
       {label && (
         <div
           className={cn(
-            'pointer-events-none absolute left-2 top-2 rounded px-2 py-0.5 text-xs font-bold text-white shadow',
+            'pointer-events-none absolute left-2 top-2 max-w-[70%] truncate whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold text-white shadow',
             labelColor,
           )}
         >

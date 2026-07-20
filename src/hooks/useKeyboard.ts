@@ -15,9 +15,11 @@ export function useKeyboard() {
       const s = useAppStore.getState()
       const key = e.key.toLowerCase()
 
-      // Shift+F：单格全屏中切换物理全屏（Fullscreen API）
+      // Shift+F：物理全屏（Fullscreen API）作用于当前视图控件整体（单图/对比/网格）；
+      // 未在控件内全屏时先补标 fullscreenCell（保证悬浮迷你条与 chrome 隐藏生效），退出顺序见 Esc
       if (key === 'f' && e.shiftKey) {
-        if (s.fullscreenCell) {
+        if (s.viewMode === 'single' || s.viewMode === 'compare' || s.viewMode === 'grid') {
+          if (!s.fullscreenCell) s.setFullscreenCell(s.viewMode)
           void s.togglePhysicalFullscreen()
           e.preventDefault()
         }
@@ -58,10 +60,10 @@ export function useKeyboard() {
         return
       }
       if (key === 'f') {
-        // F 键按模式分流：单图 / 对比 / 网格 = 进入或退出对应全屏（控件内）
+        // F 键按模式分流：单图 / 对比 / 网格 = 进入或退出**视图级**全屏（控件内，对象 = 当前视图控件整体）
         if (s.viewMode === 'single') s.setFullscreenCell(s.fullscreenCell === 'single' ? null : 'single')
-        else if (s.viewMode === 'compare') s.setFullscreenCell(s.fullscreenCell ? null : s.activeSlot)
-        else if (s.viewMode === 'grid') s.setFullscreenCell(s.fullscreenCell ? null : String(s.gridActiveIdx))
+        else if (s.viewMode === 'compare') s.setFullscreenCell(s.fullscreenCell ? null : 'compare')
+        else if (s.viewMode === 'grid') s.setFullscreenCell(s.fullscreenCell ? null : 'grid')
         return
       }
       if (key === 'r') {

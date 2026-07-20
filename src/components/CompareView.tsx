@@ -103,50 +103,13 @@ export function CompareView() {
   const onChangeA = sync ? setSharedTransform : setTransformA
   const onChangeB = sync ? setSharedTransform : setTransformB
 
-  // 单格全屏：铺满整个对比区域，隐藏其他格与分隔条/手柄
-  if (fullscreenCell === 'A' || fullscreenCell === 'B') {
-    const isA = fullscreenCell === 'A'
-    const fsEntry = isA ? entryA : entryB
-    const fsMeta = isA ? metaA : metaB
-    const fsZoom = isA ? zoomA : zoomB
-    const fsTransform = isA ? tA : tB
-    const fsOnChange = isA ? onChangeA : onChangeB
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="relative min-h-0 flex-1">
-          <ViewerPane
-            className="h-full"
-            layers={[{ entry: fsEntry, onMeta: isA ? (w, h) => setMetaA({ w, h }) : (w, h) => setMetaB({ w, h }) }]}
-            transform={fsTransform}
-            onTransformChange={fsOnChange}
-            onEffectiveZoom={isA ? setZoomA : setZoomB}
-            onToggleFullscreen={() => setFullscreenCell(null)}
-            probeSlot={fullscreenCell}
-          />
-          {infoVisible && (
-            <InfoOverlay entry={fsEntry} meta={fsMeta} zoom={fsZoom} index={indexOf(fsEntry.id)} total={navList.length} />
-          )}
-          <FullscreenMiniBar
-            label={fullscreenCell}
-            labelClass={isA ? 'text-sky-400' : 'text-orange-400'}
-            name={fsEntry.name}
-            onExit={() => setFullscreenCell(null)}
-          />
-        </div>
-        <StatusBar
-          entry={fsEntry}
-          meta={fsMeta}
-          zoom={fsZoom}
-          index={Math.max(0, indexOf(fsEntry.id))}
-          total={navList.length}
-          extra="单格全屏"
-        />
-      </div>
-    )
-  }
+  // 视图级全屏（F/双击）：整个对比视图连同当前布局（wipe/并排/叠加）全屏，
+  // 分割线/分隔条保持可交互，图像数量与布局不变；Esc/F/双击退出
+  const isFullscreen = fullscreenCell === 'compare'
+  const toggleFs = () => setFullscreenCell(isFullscreen ? null : 'compare')
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <div ref={wrapRef} className="flex min-h-0 flex-1">
         {compareLayout === 'wipe' && (
           <div className="relative min-w-0 flex-1">
@@ -164,14 +127,14 @@ export function CompareView() {
                 setZoomB(z)
               }}
               wipe={{ ratio: wipeRatio, onChange: setWipeRatio }}
-              onToggleFullscreen={() => setFullscreenCell(activeSlot)}
+              onToggleFullscreen={toggleFs}
               probeSlot={activeSlot}
               probeLayer={activeSlot === 'A' ? 0 : 1}
             />
-            <div className="pointer-events-none absolute left-2 top-2 rounded bg-sky-600 px-2 py-0.5 text-xs font-bold text-white shadow">
+            <div className="pointer-events-none absolute left-2 top-2 whitespace-nowrap rounded bg-sky-600 px-2 py-0.5 text-xs font-bold text-white shadow">
               A
             </div>
-            <div className="pointer-events-none absolute right-2 top-2 rounded bg-orange-600 px-2 py-0.5 text-xs font-bold text-white shadow">
+            <div className="pointer-events-none absolute right-2 top-2 whitespace-nowrap rounded bg-orange-600 px-2 py-0.5 text-xs font-bold text-white shadow">
               B
             </div>
             {infoVisible && activeEntry && (
@@ -201,7 +164,7 @@ export function CompareView() {
                 active={activeSlot === 'A'}
                 onActivate={() => activeSlot !== 'A' && toggleActiveSlot()}
                 onEffectiveZoom={setZoomA}
-                onToggleFullscreen={() => setFullscreenCell('A')}
+                onToggleFullscreen={toggleFs}
                 probeSlot="A"
               />
               {infoVisible && (
@@ -228,7 +191,7 @@ export function CompareView() {
                 active={activeSlot === 'B'}
                 onActivate={() => activeSlot !== 'B' && toggleActiveSlot()}
                 onEffectiveZoom={setZoomB}
-                onToggleFullscreen={() => setFullscreenCell('B')}
+                onToggleFullscreen={toggleFs}
                 probeSlot="B"
               />
               {infoVisible && (
@@ -263,7 +226,7 @@ export function CompareView() {
                 setZoomA(z)
                 setZoomB(z)
               }}
-              onToggleFullscreen={() => setFullscreenCell(activeSlot)}
+              onToggleFullscreen={toggleFs}
               probeSlot={activeSlot}
               probeLayer={overlaySwapped ? (activeSlot === 'A' ? 1 : 0) : activeSlot === 'A' ? 0 : 1}
             />
@@ -280,13 +243,16 @@ export function CompareView() {
           </div>
         )}
       </div>
+      {isFullscreen && (
+        <FullscreenMiniBar name={`${entryA.name} × ${entryB.name}`} onExit={() => setFullscreenCell(null)} />
+      )}
       <StatusBar
         entry={activeEntry}
         meta={activeMeta}
         zoom={activeZoom}
         index={Math.max(0, activeIndex)}
         total={navList.length}
-        extra={`激活侧 ${activeSlot}${compareLayout === 'side' && sync ? ' · 同步中' : ''}`}
+        extra={`激活侧 ${activeSlot}${compareLayout === 'side' && sync ? ' · 同步中' : ''}${isFullscreen ? ' · 全屏' : ''}`}
       />
     </div>
   )

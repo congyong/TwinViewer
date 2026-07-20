@@ -97,8 +97,8 @@ export function CompareGrid() {
   const cellOnChange = (i: number) => (t: Parameters<typeof setSharedTransform>[0]) =>
     gridSync ? setSharedTransform(t) : setGridTransform(i, t)
 
-  const fsIdx = fullscreenCell !== null ? parseInt(fullscreenCell, 10) : -1
-  const fsEntry = fsIdx >= 0 && fsIdx < entries.length ? entries[fsIdx] : null
+  // 视图级全屏（F/双击）：整个网格连同当前宫格布局全屏，格数与布局不变；Esc/F/双击退出
+  const isFullscreen = fullscreenCell === 'grid'
 
   if (entries.length === 0) {
     return (
@@ -108,55 +108,8 @@ export function CompareGrid() {
     )
   }
 
-  // 单格全屏（双击 / F 进入，Esc / F / 双击退出）
-  if (fsEntry) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="relative min-h-0 flex-1">
-          <ViewerPane
-            className="h-full"
-            layers={[
-              {
-                entry: fsEntry,
-                onMeta: (w, h) => setMetas((m) => ({ ...m, [fsEntry.id]: { w, h } })),
-              },
-            ]}
-            transform={cellTransform(fsIdx)}
-            onTransformChange={cellOnChange(fsIdx)}
-            onEffectiveZoom={(z) => setZooms((s) => ({ ...s, [fsIdx]: z }))}
-            onToggleFullscreen={() => setFullscreenCell(null)}
-            probeSlot={String(fsIdx + 1)}
-          />
-          {infoVisible && (
-            <InfoOverlay
-              entry={fsEntry}
-              meta={metas[fsEntry.id] ?? null}
-              zoom={zooms[fsIdx] ?? 1}
-              index={fsIdx}
-              total={entries.length}
-            />
-          )}
-          <FullscreenMiniBar
-            label={String(fsIdx + 1)}
-            labelClass="text-sky-400"
-            name={fsEntry.name}
-            onExit={() => setFullscreenCell(null)}
-          />
-        </div>
-        <StatusBar
-          entry={fsEntry}
-          meta={metas[fsEntry.id] ?? null}
-          zoom={zooms[fsIdx] ?? 1}
-          index={fsIdx}
-          total={entries.length}
-          extra="单格全屏"
-        />
-      </div>
-    )
-  }
-
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <div
         ref={containerRef}
         className="grid min-h-0 flex-1 gap-1 bg-[var(--tv-well)] p-1"
@@ -183,7 +136,7 @@ export function CompareGrid() {
               active={i === activeIdx}
               onActivate={() => setGridActiveIdx(i)}
               onEffectiveZoom={(z) => setZooms((s) => ({ ...s, [i]: z }))}
-              onToggleFullscreen={() => setFullscreenCell(String(i))}
+              onToggleFullscreen={() => setFullscreenCell(isFullscreen ? null : 'grid')}
               probeSlot={String(i + 1)}
             />
             {infoVisible && (
@@ -199,13 +152,16 @@ export function CompareGrid() {
           </div>
         ))}
       </div>
+      {isFullscreen && (
+        <FullscreenMiniBar name={`网格 ${entries.length} 张`} onExit={() => setFullscreenCell(null)} />
+      )}
       <StatusBar
         entry={activeEntry}
         meta={activeEntry ? (metas[activeEntry.id] ?? null) : null}
         zoom={zooms[activeIdx] ?? 1}
         index={Math.max(0, activeIdx)}
         total={entries.length}
-        extra={`网格 ${entries.length} 张 · ${gridSync ? '同步' : '独立'} · 点击 / Tab / 数字键切换激活格 · F 全屏 · N 下一组`}
+        extra={`网格 ${entries.length} 张 · ${gridSync ? '同步' : '独立'} · 点击 / Tab / 数字键切换激活格 · F 全屏 · N 下一组${isFullscreen ? ' · 全屏' : ''}`}
       />
     </div>
   )

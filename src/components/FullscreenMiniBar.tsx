@@ -66,8 +66,9 @@ export function FullscreenMiniBar({
 
   return (
     <div
+      data-minibar
       className={cn(
-        'absolute left-1/2 top-2 z-30 flex -translate-x-1/2 items-center gap-2 text-xs text-neutral-200',
+        'absolute left-1/2 top-2 z-30 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap text-xs text-neutral-200',
         floating
           ? cn(
               'rounded-full border border-white/15 bg-black/40 px-4 py-1.5 shadow-xl backdrop-blur-md',

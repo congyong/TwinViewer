@@ -216,6 +216,7 @@ export interface AppState {
   resample: ResampleMode
   infoVisible: boolean
   histoVisible: boolean
+  /** 视图级全屏标记：'single' | 'compare' | 'grid' | null（全屏对象 = 当前视图控件整体，不再单格化） */
   fullscreenCell: string | null
   physicalFullscreen: boolean
   sidebarOpen: boolean

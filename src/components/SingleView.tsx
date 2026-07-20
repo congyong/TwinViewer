@@ -87,7 +87,7 @@ export function SingleView() {
           zoom={effZoom}
           index={Math.max(0, index)}
           total={navList.length}
-          extra="单格全屏"
+          extra="全屏"
         />
       </div>
     )

@@ -622,6 +622,57 @@ async function runSmokeTest(win) {
         return fail(`真全屏/槽位导航不符预期: ${JSON.stringify(navAssert)}`)
       }
 
+      // a.9) 全屏策略：视图级全屏对象 = 当前视图控件整体（对比并排 2 pane / 网格 4 pane 均保留 + chrome 隐藏 + 迷你条）
+      const fsAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        const panes = () => document.querySelectorAll('[data-view-pane]').length
+        const chromeVisible = () =>
+          !!document.querySelector('aside') || !!document.querySelector('[data-chrome="filmstrip"]')
+        const ids = S().images.map((e) => e.id)
+        // 对比（并排 2 图）→ 视图级全屏：两个 pane 均在、分隔条仍渲染、侧栏/胶片条隐藏、工具栏保留、迷你条出现
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', checked: [], navScope: 'all' })
+        S().setFullscreenCell('compare')
+        await wait(350)
+        out.cmpPanes = panes()
+        out.cmpDivider = !!document.querySelector('.cursor-col-resize')
+        out.cmpMinibar = !!document.querySelector('[data-minibar]')
+        out.cmpChromeHidden = !chromeVisible()
+        out.cmpToolbarKept = !!document.querySelector('[data-chrome="toolbar"]')
+        // 叠加物理全屏：工具栏也卸载，pane 数不变；退出恢复
+        store.setState({ physicalFullscreen: true })
+        await wait(250)
+        out.physicalHidesToolbar = !document.querySelector('[data-chrome="toolbar"]') && panes() === 2
+        store.setState({ physicalFullscreen: false })
+        await wait(250)
+        // 退出控件内全屏 → chrome 恢复、仍是 2 pane
+        S().setFullscreenCell(null)
+        await wait(250)
+        out.cmpRestored = chromeVisible() && panes() === 2
+        // 网格 4 图 → 视图级全屏：4 个 pane 均在
+        store.setState({ viewMode: 'grid', gridIds: [ids[0], ids[1], ids[2], ids[3]], gridActiveIdx: 0 })
+        S().setFullscreenCell('grid')
+        await wait(350)
+        out.gridPanes = panes()
+        out.gridMinibar = !!document.querySelector('[data-minibar]')
+        out.gridChromeHidden = !chromeVisible()
+        S().setFullscreenCell(null)
+        store.setState({ viewMode: 'browse', gridIds: [] })
+        S().setViewMode('browse')
+        await wait(200)
+        out.ok = out.cmpPanes === 2 && out.cmpDivider && out.cmpMinibar && out.cmpChromeHidden &&
+          out.cmpToolbarKept && out.physicalHidesToolbar && out.cmpRestored &&
+          out.gridPanes === 4 && out.gridMinibar && out.gridChromeHidden
+        return out
+      })()`)
+      console.log(`[SMOKE] 全屏策略: ${JSON.stringify(fsAssert)}`)
+      if (!fsAssert.ok) {
+        clearTimeout(killer)
+        return fail(`全屏策略不符预期: ${JSON.stringify(fsAssert)}`)
+      }
+
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）
       await new Promise((r) => setTimeout(r, 3000))
       let image = null
