@@ -9,10 +9,10 @@ import type { ImageEntry } from '@/lib/fs-provider'
 import { getDecoded } from '@/lib/decode-cache'
 
 export interface HistoData {
-  r: number[]
-  g: number[]
-  b: number[]
+  /** 亮度直方图（256 bin，Rec.709：Y = 0.2126R + 0.7152G + 0.0722B） */
   l: number[]
+  /** 抽样总像素数（悬停占比用） */
+  total: number
 }
 
 export interface ExifInfo {
@@ -38,7 +38,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   })
 }
 
-/** 抽样（最长边 ≤256px）计算 RGB/亮度直方图；解码失败或 canvas 被污染时返回 null */
+/** 抽样（最长边 ≤256px）计算亮度直方图（Rec.709）；解码失败或 canvas 被污染时返回 null */
 export async function computeHistogram(entry: ImageEntry): Promise<HistoData | null> {
   const cached = histoCache.get(entry.id)
   if (cached !== undefined) return cached
@@ -58,20 +58,12 @@ export async function computeHistogram(entry: ImageEntry): Promise<HistoData | n
     if (!ctx) throw new Error('no 2d context')
     ctx.drawImage(source, 0, 0, w, h)
     const data = ctx.getImageData(0, 0, w, h).data
-    const r = new Array<number>(256).fill(0)
-    const g = new Array<number>(256).fill(0)
-    const b = new Array<number>(256).fill(0)
     const l = new Array<number>(256).fill(0)
+    const total = w * h
     for (let i = 0; i < data.length; i += 4) {
-      const rv = data[i]
-      const gv = data[i + 1]
-      const bv = data[i + 2]
-      r[rv] += 1
-      g[gv] += 1
-      b[bv] += 1
-      l[Math.round(0.2126 * rv + 0.7152 * gv + 0.0722 * bv)] += 1
+      l[Math.round(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2])] += 1
     }
-    const res: HistoData = { r, g, b, l }
+    const res: HistoData = { l, total }
     histoCache.set(entry.id, res)
     return res
   } catch {

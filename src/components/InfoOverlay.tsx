@@ -7,8 +7,8 @@ import { useAppStore } from '@/store/appStore'
 import { cn } from '@/lib/utils'
 
 /**
- * 直方图绘制（220×100 含 X 轴）：
- * 上部为亮度填充 + RGB 折线；底部 X 轴带值域刻度 0 / 64 / 128 / 192 / 255
+ * 直方图绘制（220×100 含 X 轴，FastStone 风格纯亮度）：
+ * 单通道亮度（Rec.709）灰白填充 + 顶边细描边；底部 X 轴带值域刻度 0 / 64 / 128 / 192 / 255
  */
 function drawHistogram(canvas: HTMLCanvasElement, data: HistoData) {
   const ctx = canvas.getContext('2d')
@@ -21,9 +21,9 @@ function drawHistogram(canvas: HTMLCanvasElement, data: HistoData) {
   ctx.fillStyle = 'rgba(0,0,0,0.3)'
   ctx.fillRect(0, 0, W, plotH)
 
-  const max = Math.max(1, ...data.l, ...data.r, ...data.g, ...data.b)
+  const max = Math.max(1, ...data.l)
   const barW = W / 256
-  // 刻度竖向参考线（先画，置于曲线之下）
+  // 刻度竖向参考线（先画，置于直方图之下）
   ctx.strokeStyle = 'rgba(255,255,255,0.12)'
   ctx.lineWidth = 1
   for (const v of [64, 128, 192]) {
@@ -33,27 +33,23 @@ function drawHistogram(canvas: HTMLCanvasElement, data: HistoData) {
     ctx.lineTo(x, plotH)
     ctx.stroke()
   }
-  // 亮度填充（白，半透明）
-  ctx.fillStyle = 'rgba(255,255,255,0.35)'
+  // 亮度单通道：灰白单色填充
+  ctx.fillStyle = 'rgba(235,235,235,0.45)'
   for (let i = 0; i < 256; i++) {
     const h = (data.l[i] / max) * plotH
     ctx.fillRect(i * barW, plotH - h, Math.max(barW, 0.6), h)
   }
-  // RGB 折线
-  const drawLine = (arr: number[], color: string) => {
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    for (let i = 0; i < 256; i++) {
-      const y = plotH - (arr[i] / max) * plotH
-      if (i === 0) ctx.moveTo(0, y)
-      else ctx.lineTo(i * barW, y)
-    }
-    ctx.stroke()
+  // 顶边细描边（沿柱顶连线）
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (let i = 0; i < 256; i++) {
+    const y = plotH - (data.l[i] / max) * plotH
+    const x = i * barW + barW / 2
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
   }
-  drawLine(data.r, 'rgba(255,80,80,0.9)')
-  drawLine(data.g, 'rgba(80,255,80,0.9)')
-  drawLine(data.b, 'rgba(90,140,255,0.9)')
+  ctx.stroke()
 
   // X 轴：刻度线 + 数字标签 0 / 64 / 128 / 192 / 255
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'
@@ -124,6 +120,7 @@ export function InfoOverlay({ entry, meta, zoom, index, total, offsetTop }: Info
   const histoVisible = useAppStore((s) => s.histoVisible)
   const [histo, setHisto] = useState<HistoData | null | undefined>(undefined)
   const [exif, setExif] = useState<ExifInfo | null | undefined>(undefined)
+  const [hoverBin, setHoverBin] = useState<number | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // 换图时重置并按需重新读取
@@ -182,7 +179,24 @@ export function InfoOverlay({ entry, meta, zoom, index, total, offsetTop }: Info
       {histoVisible && (
         <div className={cn(infoVisible && 'mt-1 border-t border-[var(--tv-line)] pt-1')}>
           {histo ? (
-            <canvas ref={canvasRef} width={220} height={100} className="rounded bg-black/50" />
+            <>
+              <canvas
+                ref={canvasRef}
+                width={220}
+                height={100}
+                className="rounded bg-black/50"
+                onMouseMove={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const bin = Math.floor(((e.clientX - rect.left) / rect.width) * 256)
+                  setHoverBin(Math.min(255, Math.max(0, bin)))
+                }}
+                onMouseLeave={() => setHoverBin(null)}
+              />
+              <div className="mt-0.5 h-3.5 whitespace-nowrap text-neutral-400">
+                {hoverBin !== null &&
+                  `亮度 ${hoverBin} · ${histo.l[hoverBin].toLocaleString()} px · ${((histo.l[hoverBin] / Math.max(1, histo.total)) * 100).toFixed(1)}%`}
+              </div>
+            </>
           ) : histo === null ? (
             <div className="text-neutral-500">直方图不可用</div>
           ) : (
