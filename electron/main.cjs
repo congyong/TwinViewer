@@ -496,6 +496,139 @@ app.whenReady().then(() => {
     return { ok, failed }
   })
 
+  // 主题窗口背景同步（渲染进程主题切换时调用，避免切换瞬间闪白/闪黑）
+  ipcMain.handle('set-window-background', async (event, color) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) win.setBackgroundColor(color)
+  })
+
+  // 「打开文件夹」对话框：常用位置快捷入口（桌面/图片/文档/下载/主目录 + 盘符）
+  ipcMain.handle('special-dirs', async () => {
+    const out = []
+    const push = async (name, p) => {
+      try {
+        if (p && (await pathExists(p))) out.push({ name, path: p })
+      } catch {
+        /* 单个位置不可用时跳过 */
+      }
+    }
+    await push('桌面', app.getPath('desktop'))
+    await push('图片', app.getPath('pictures'))
+    await push('文档', app.getPath('documents'))
+    await push('下载', app.getPath('downloads'))
+    await push('主目录', app.getPath('home'))
+    if (process.platform === 'win32') {
+      for (let c = 67; c <= 90; c += 1) {
+        const letter = String.fromCharCode(c)
+        const drive = `${letter}:\\`
+        if (await pathExists(drive)) out.push({ name: `本地磁盘 (${letter}:)`, path: drive })
+      }
+    } else {
+      out.push({ name: '根目录', path: '/' })
+    }
+    return out
+  })
+
+  // 「打开文件夹」对话框：列出一层子目录（dir 为 null 时返回顶层盘符/根）
+  ipcMain.handle('browse-dir', async (_event, dir) => {
+    if (typeof dir !== 'string' || !dir) {
+      if (process.platform === 'win32') {
+        const drives = []
+        for (let c = 67; c <= 90; c += 1) {
+          const letter = String.fromCharCode(c)
+          const drive = `${letter}:\\`
+          if (await pathExists(drive)) {
+            drives.push({ name: `${letter}:`, path: drive, imageCount: 0, hasSubdirs: true })
+          }
+        }
+        return { path: null, parent: null, dirs: drives }
+      }
+      return { path: '/', parent: null, dirs: await listDirsLayer('/') }
+    }
+    const parent = path.dirname(dir)
+    return { path: dir, parent: parent === dir ? null : parent, dirs: await listDirsLayer(dir) }
+  })
+
+  // 目录图片预览：递归扫描（20000 项防爆上限），返回总数与前 limit 张
+  const PREVIEW_SCAN_CAP = 20000
+  ipcMain.handle('dir-image-preview', async (_event, dir, limit) => {
+    const images = []
+    let count = 0
+    let capped = false
+    const cap = typeof limit === 'number' && limit > 0 ? Math.min(limit, 64) : 12
+    async function walk(d) {
+      if (capped) return
+      let entries
+      try {
+        entries = await fs.readdir(d, { withFileTypes: true })
+      } catch {
+        return
+      }
+      // 文件优先（预览更早出现），子目录排后
+      entries.sort(
+        (a, b) =>
+          (a.isDirectory() ? 1 : 0) - (b.isDirectory() ? 1 : 0) ||
+          a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }),
+      )
+      for (const ent of entries) {
+        if (capped) return
+        const full = path.join(d, ent.name)
+        try {
+          if (ent.isDirectory()) {
+            await walk(full)
+          } else if (ent.isFile() && IMAGE_EXTS.has(path.extname(ent.name).toLowerCase())) {
+            count += 1
+            if (images.length < cap) images.push({ path: full, name: ent.name })
+            if (count >= PREVIEW_SCAN_CAP) {
+              capped = true
+              return
+            }
+          }
+        } catch {
+          // 跳过无权限/损坏项
+        }
+      }
+    }
+    if (typeof dir === 'string' && dir) await walk(dir)
+    return { count, capped, images }
+  })
+
+  // 拖放粘贴：递归复制文件/目录到目标目录（重名自动加副本后缀，目录整体复制）
+  ipcMain.handle('copy-into', async (_event, sources, targetDir) => {
+    const ok = []
+    const failed = []
+    if (!Array.isArray(sources) || typeof targetDir !== 'string' || !targetDir) return { ok, failed }
+    async function copyOne(src, destDir) {
+      const name = path.basename(src)
+      try {
+        const stat = await fs.stat(src)
+        let destName = name
+        let n = 0
+        while (await pathExists(path.join(destDir, destName))) {
+          destName = copyNameOf(name, n)
+          n += 1
+        }
+        const dest = path.join(destDir, destName)
+        if (stat.isDirectory()) {
+          await fs.mkdir(dest)
+          const children = await fs.readdir(src)
+          for (const child of children) await copyOne(path.join(src, child), dest)
+          ok.push(`${destName}/`)
+        } else {
+          await fs.copyFile(src, dest)
+          ok.push(destName)
+        }
+      } catch (err) {
+        failed.push({ name, error: String((err && err.message) || err) })
+      }
+    }
+    for (const src of sources) {
+      if (typeof src !== 'string' || !src) continue
+      await copyOne(src, targetDir)
+    }
+    return { ok, failed }
+  })
+
   createWindow()
 
   app.on('activate', () => {

@@ -7,6 +7,8 @@ import { CompareView } from '@/components/CompareView'
 import { CompareGrid } from '@/components/CompareGrid'
 import { Filmstrip } from '@/components/Filmstrip'
 import { HelpOverlay } from '@/components/HelpOverlay'
+import { OpenFolderDialog } from '@/components/OpenFolderDialog'
+import { PendingOpenConfirm } from '@/components/PendingOpenConfirm'
 import { EmptyState } from '@/components/EmptyState'
 import { useKeyboard } from '@/hooks/useKeyboard'
 import { getNavList, useAppStore } from '@/store/appStore'
@@ -72,14 +74,14 @@ export default function App() {
   const hideChrome = fullscreenCell === 'single'
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#1e1e1e] text-neutral-200">
+    <div className="flex h-screen flex-col overflow-hidden bg-[var(--tv-bg)] text-[var(--tv-text)]">
       <Toolbar />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && !hideChrome && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="min-h-0 flex-1">
             {loading && (
-              <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+              <div className="flex h-full items-center justify-center text-sm text-[var(--tv-text-dim)]">
                 正在扫描图片…
               </div>
             )}
@@ -98,6 +100,8 @@ export default function App() {
         </div>
       </div>
       <HelpOverlay />
+      <OpenFolderDialog />
+      <PendingOpenConfirm />
     </div>
   )
 }

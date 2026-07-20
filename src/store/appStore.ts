@@ -180,6 +180,10 @@ export interface AppState {
   dir: DirectorySource | null
   loading: boolean
   loadError: string | null
+  /** Electron：自绘「打开文件夹」对话框显隐 */
+  openFolderDialogOpen: boolean
+  /** 浏览器模式：选择后待确认的打开（预览确认条；受 FS Access 限制无法在选择前预览） */
+  pendingOpen: { dir: DirectorySource; images: ImageEntry[] } | null
   recursive: boolean
   images: ImageEntry[]
   currentPath: string
@@ -229,6 +233,9 @@ export interface AppState {
   openDirectory: () => Promise<void>
   openPath: (path: string) => Promise<void>
   rescan: () => Promise<void>
+  setOpenFolderDialog: (v: boolean) => void
+  confirmPendingOpen: () => void
+  discardPendingOpen: (reselect: boolean) => Promise<void>
   setRecursive: (v: boolean) => void
   setCurrentPath: (path: string) => void
   toggleTreeNode: (relPath: string) => void
@@ -347,19 +354,40 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   openDirectory: async () => {
     const provider = getFSProvider()
+    // Electron：自绘带预览的「打开文件夹」对话框（内部保留系统对话框入口）
+    if (provider.kind === 'electron') {
+      set({ openFolderDialogOpen: true })
+      return
+    }
     const dir = await provider.pickDirectory()
     if (!dir) return
     set({ loading: true, loadError: null })
     try {
       const images = await provider.listImages(dir, true)
-      get().revokeAll()
-      clearDecodeSession()
-      clearProbeCache()
-      set(freshState(dir, images))
-      void get().loadAncestors()
+      // 浏览器模式：FS Access 无法在选择前预览 → 选择后弹预览确认条（确认/重选）
+      set({ loading: false, pendingOpen: { dir, images } })
     } catch (err) {
       set({ loading: false, loadError: err instanceof Error ? err.message : String(err) })
     }
+  },
+
+  setOpenFolderDialog: (v) => set({ openFolderDialogOpen: v }),
+
+  confirmPendingOpen: () => {
+    const p = get().pendingOpen
+    if (!p) return
+    get().revokeAll()
+    clearDecodeSession()
+    clearProbeCache()
+    set({ ...freshState(p.dir, p.images), pendingOpen: null })
+    void get().loadAncestors()
+  },
+
+  discardPendingOpen: async (reselect) => {
+    const p = get().pendingOpen
+    set({ pendingOpen: null })
+    if (p) for (const e of p.images) e.revoke()
+    if (reselect) await get().openDirectory()
   },
 
   openPath: async (path) => {

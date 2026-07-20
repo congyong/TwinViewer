@@ -60,6 +60,28 @@ export interface FSProvider {
   makeDir?(parent: string, name: string): Promise<{ ok: boolean; error?: string }>
   /** Electron 专用：移入回收站（shell.trashItem） */
   trashItems?(paths: string[]): Promise<FileOpResult>
+  /** Electron 专用：打开对话框快捷入口 */
+  specialDirs?(): Promise<{ name: string; path: string }[]>
+  /** Electron 专用：打开对话框列一层子目录（null = 顶层） */
+  browseDir?(dir: string | null): Promise<BrowseDirResult>
+  /** Electron 专用：目录图片预览（递归计数 + 前 limit 张） */
+  dirImagePreview?(dir: string, limit: number): Promise<DirImagePreview>
+  /** Electron 专用：拖放 File → 绝对路径 */
+  getPathForFile?(file: File): string
+  /** Electron 专用：拖放递归复制（重名自动副本） */
+  copyInto?(sources: string[], targetDir: string): Promise<FileOpResult>
+}
+
+export interface BrowseDirResult {
+  path: string | null
+  parent: string | null
+  dirs: DirInfo[]
+}
+
+export interface DirImagePreview {
+  count: number
+  capped: boolean
+  images: { path: string; name: string }[]
 }
 
 export interface DirInfo {
@@ -98,6 +120,12 @@ interface TwinviewBridge {
   copyFiles(sources: string[], targetDir: string): Promise<FileOpResult>
   makeDir(parent: string, name: string): Promise<{ ok: boolean; error?: string }>
   trashItems(paths: string[]): Promise<FileOpResult>
+  setWindowBackground?(color: string): Promise<void>
+  specialDirs(): Promise<{ name: string; path: string }[]>
+  browseDir(dir: string | null): Promise<BrowseDirResult>
+  dirImagePreview(dir: string, limit: number): Promise<DirImagePreview>
+  getPathForFile(file: File): string
+  copyInto(sources: string[], targetDir: string): Promise<FileOpResult>
   platform: string
   versions: Record<string, string>
 }
@@ -304,6 +332,26 @@ class ElectronFSProvider implements FSProvider {
 
   async trashItems(paths: string[]): Promise<FileOpResult> {
     return this.bridge().trashItems(paths)
+  }
+
+  async specialDirs() {
+    return this.bridge().specialDirs()
+  }
+
+  async browseDir(dir: string | null) {
+    return this.bridge().browseDir(dir)
+  }
+
+  async dirImagePreview(dir: string, limit: number) {
+    return this.bridge().dirImagePreview(dir, limit)
+  }
+
+  getPathForFile(file: File): string {
+    return this.bridge().getPathForFile(file)
+  }
+
+  async copyInto(sources: string[], targetDir: string): Promise<FileOpResult> {
+    return this.bridge().copyInto(sources, targetDir)
   }
 }
 
