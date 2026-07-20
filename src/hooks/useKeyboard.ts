@@ -141,6 +141,9 @@ export function useKeyboard() {
           if (s.activeSlot !== target) s.toggleActiveSlot()
         } else if (key === 'x') {
           s.swapSlots()
+        } else if (key === 'd') {
+          // D：差值热图开关（再按返回进入前布局）
+          s.toggleDiffLayout()
         } else if (key === 'g' || key === 'w') {
           s.cycleCompareLayout()
         } else if (key === 'n') {

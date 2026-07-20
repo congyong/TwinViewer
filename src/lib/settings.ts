@@ -10,8 +10,10 @@ export type ThemeMode = 'dark' | 'light' | 'system'
 export type BrowseMode = 'large' | 'medium' | 'small' | 'list'
 export type SortKey = 'name' | 'lastModified' | 'size'
 export type ResampleMode = 'auto' | 'nearest' | 'bifant' | 'bilinear' | 'bicubic' | 'lanczos'
-export type CompareLayout = 'wipe' | 'side' | 'overlay'
+export type CompareLayout = 'wipe' | 'side' | 'overlay' | 'diff'
 export type NavScope = 'all' | 'checked'
+/** 差值热图 colormap */
+export type DiffColormap = 'inferno' | 'gray' | 'viridis' | 'coolwarm'
 
 export interface FavoriteEntry {
   path: string
@@ -40,6 +42,10 @@ export interface SettingsData {
   splitRatio: number
   wipeRatio: number
   overlayOpacity: number
+  /** 差值热图 colormap */
+  diffColormap: DiffColormap
+  /** 差值容差 0–128（≤容差的像素置黑） */
+  diffTolerance: number
   favorites: FavoriteEntry[]
 }
 
@@ -65,6 +71,8 @@ export const DEFAULT_SETTINGS: SettingsData = {
   splitRatio: 0.5,
   wipeRatio: 0.5,
   overlayOpacity: 0.5,
+  diffColormap: 'inferno',
+  diffTolerance: 16,
   favorites: [],
 }
 
@@ -83,7 +91,8 @@ const LEGACY = {
 const RESAMPLE_VALUES: ResampleMode[] = ['auto', 'nearest', 'bifant', 'bilinear', 'bicubic', 'lanczos']
 const BROWSE_VALUES: BrowseMode[] = ['large', 'medium', 'small', 'list']
 const SORT_VALUES: SortKey[] = ['name', 'lastModified', 'size']
-const LAYOUT_VALUES: CompareLayout[] = ['wipe', 'side', 'overlay']
+const LAYOUT_VALUES: CompareLayout[] = ['wipe', 'side', 'overlay', 'diff']
+const DIFF_COLORMAP_VALUES: DiffColormap[] = ['inferno', 'gray', 'viridis', 'coolwarm']
 const THEME_VALUES: ThemeMode[] = ['dark', 'light', 'system']
 
 function clamp01(v: number, min: number, max: number): number {
@@ -125,6 +134,11 @@ function sanitize(raw: Partial<SettingsData>): SettingsData {
     splitRatio: ratio(raw.splitRatio, d.splitRatio, 0.15, 0.85),
     wipeRatio: ratio(raw.wipeRatio, d.wipeRatio, 0.02, 0.98),
     overlayOpacity: ratio(raw.overlayOpacity, d.overlayOpacity, 0, 1),
+    diffColormap: pick(raw.diffColormap, DIFF_COLORMAP_VALUES, d.diffColormap),
+    diffTolerance: (() => {
+      const n = Number(raw.diffTolerance)
+      return Number.isFinite(n) ? Math.min(128, Math.max(0, Math.round(n))) : d.diffTolerance
+    })(),
     favorites: Array.isArray(raw.favorites)
       ? raw.favorites.filter(
           (f): f is FavoriteEntry =>

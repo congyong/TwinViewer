@@ -20,6 +20,7 @@ const SHORTCUTS: { keys: string; desc: string }[] = [
   { keys: 'Tab', desc: '对比：切换激活侧（A ↔ B）；网格：循环激活格' },
   { keys: 'X', desc: '交换 A/B' },
   { keys: 'W / G', desc: '循环对比布局（划变 → 并排 → 叠化）' },
+  { keys: 'D', desc: '差值热图开关：逐像素差值 + colormap（inferno/gray/viridis/coolwarm）+ 容差 0–128（≤容差置黑），再按 D 返回之前布局' },
   { keys: 'N', desc: '对比：下一对（仅勾选导航且勾选 ≥4 张）；网格：下一组' },
   { keys: '?', desc: '打开 / 关闭本帮助' },
 ]

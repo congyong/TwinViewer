@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { getNavList, useAppStore } from '@/store/appStore'
 import { ViewerPane } from '@/components/ViewerPane'
+import { DiffPane } from '@/components/DiffPane'
 import { StatusBar } from '@/components/StatusBar'
 import { InfoOverlay } from '@/components/InfoOverlay'
 import { FullscreenMiniBar } from '@/components/FullscreenMiniBar'
@@ -39,6 +40,7 @@ export function CompareView() {
   const setFullscreenCell = useAppStore((s) => s.setFullscreenCell)
   const physicalFullscreen = useAppStore((s) => s.physicalFullscreen)
   const fullscreenDblClick = useAppStore((s) => s.fullscreenDblClick)
+  const diffTolerance = useAppStore((s) => s.diffTolerance)
 
   const [metaA, setMetaA] = useState<{ w: number; h: number } | null>(null)
   const [metaB, setMetaB] = useState<{ w: number; h: number } | null>(null)
@@ -282,6 +284,34 @@ export function CompareView() {
             )}
           </div>
         )}
+        {compareLayout === 'diff' && (
+          <div className="relative min-w-0 flex-1">
+            <DiffPane
+              className="h-full"
+              entryA={entryA}
+              entryB={entryB}
+              transform={sharedTransform}
+              onTransformChange={setSharedTransform}
+              title={`${entryA.name} − ${entryB.name}`}
+              onMeta={(w, h) => setMetaA({ w, h })}
+              onEffectiveZoom={(z) => {
+                setZoomA(z)
+                setZoomB(z)
+              }}
+              onToggleFullscreen={() => fullscreenDblClick(activeSlot)}
+            />
+            {infoVisible && activeEntry && (
+              <InfoOverlay
+                entry={activeEntry}
+                meta={activeMeta}
+                zoom={activeZoom}
+                index={activeIndex}
+                total={navList.length}
+                offsetTop
+              />
+            )}
+          </div>
+        )}
       </div>
       {/* Shift+F 直进的物理全屏（无单格全屏）：补悬浮迷你条退出入口 */}
       {physicalFullscreen && (
@@ -296,7 +326,11 @@ export function CompareView() {
         zoom={activeZoom}
         index={Math.max(0, activeIndex)}
         total={navList.length}
-        extra={`激活侧 ${activeSlot}${compareLayout === 'side' && sync ? ' · 同步中' : ''}`}
+        extra={
+          compareLayout === 'diff'
+            ? `差值热图 · 容差 ${diffTolerance}（D 退出）`
+            : `激活侧 ${activeSlot}${compareLayout === 'side' && sync ? ' · 同步中' : ''}`
+        }
       />
     </div>
   )

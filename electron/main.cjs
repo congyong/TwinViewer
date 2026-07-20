@@ -44,7 +44,7 @@ const CLI_HELP = `TwinView 图片对比浏览器
 可选参数:
   --recursive                      本次会话开启「含子文件夹」
   --theme dark|light|system        指定主题
-  --layout wipe|side|overlay|grid  对比显示模式（配合 --compare）
+  --layout wipe|side|overlay|diff|grid  对比显示模式（配合 --compare）
   --help                           打印本说明
 未识别的参数会被忽略并警告到 stdout。`
 
@@ -87,11 +87,11 @@ function parseCliArgs(argv) {
     }
     if (a === '--layout') {
       const v = args[i + 1]
-      if (v === 'wipe' || v === 'side' || v === 'overlay' || v === 'grid') {
+      if (v === 'wipe' || v === 'side' || v === 'overlay' || v === 'diff' || v === 'grid') {
         out.flags.layout = v
         i += 1
       } else {
-        out.warnings.push(`--layout 无效值: ${v ?? '(缺失)'}（可选 wipe|side|overlay|grid）`)
+        out.warnings.push(`--layout 无效值: ${v ?? '(缺失)'}（可选 wipe|side|overlay|diff|grid）`)
       }
       continue
     }
@@ -806,6 +806,65 @@ async function runSmokeTest(win) {
       if (!treeAssert.ok) {
         clearTimeout(killer)
         return fail(`树点击回浏览不符预期: ${JSON.stringify(treeAssert)}`)
+      }
+
+      // a.12) 差值热图：UI 挂载（配置面板+diff canvas）+ 同图全黑 + 异图非黑 +
+      //       单元级（合成位图）：容差单调抑制与置黑阈值、colormap 切换结果不同
+      const diffAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        const ids = S().images.map((e) => e.id)
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'diff', diffTolerance: 16, diffColormap: 'inferno', fullscreenCell: null, physicalFullscreen: false })
+        await wait(900)
+        out.panelShown = !!document.querySelector('[data-diff-panel]')
+        const c0 = document.querySelector('[data-diff-canvas]')
+        out.canvasShown = !!c0 && c0.width > 0
+        const center = () => {
+          const c = document.querySelector('[data-diff-canvas]')
+          const x = c.getContext('2d')
+          const d = x.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data
+          return [d[0], d[1], d[2]]
+        }
+        out.diffNonBlack = center().some((v) => v > 0)
+        // 同图（A1 vs A1）→ 全黑
+        store.setState({ slotA: ids[0], slotB: ids[0] })
+        await wait(800)
+        out.sameBlack = center().every((v) => v === 0)
+        // 单元级：合成位图精确验证（d=100 恒定）
+        const { computeDiffBitmap } = await import('/src/lib/diffmap.ts')
+        const mk = async (rgb) => {
+          const c = document.createElement('canvas'); c.width = 4; c.height = 4
+          const x = c.getContext('2d'); x.fillStyle = rgb; x.fillRect(0, 0, 4, 4)
+          return createImageBitmap(c)
+        }
+        const read = async (bmp) => {
+          const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height
+          const x = c.getContext('2d'); x.drawImage(bmp, 0, 0)
+          return Array.from(x.getImageData(1, 1, 1, 1).data.slice(0, 3))
+        }
+        const bmpA = await mk('rgb(200,100,50)')
+        const bmpB = await mk('rgb(100,100,50)')
+        const g16 = await read(await computeDiffBitmap(bmpA, bmpB, 16, 'gray'))
+        const g64 = await read(await computeDiffBitmap(bmpA, bmpB, 64, 'gray'))
+        const g100 = await read(await computeDiffBitmap(bmpA, bmpB, 100, 'gray'))
+        out.tolEffect = g16[0] > g64[0] && g64[0] > 0 && g100.every((v) => v === 0)
+        const ci = await read(await computeDiffBitmap(bmpA, bmpB, 16, 'inferno'))
+        const cv = await read(await computeDiffBitmap(bmpA, bmpB, 16, 'viridis'))
+        out.cmapDiffers = ci.some((v, i) => v !== cv[i])
+        bmpA.close(); bmpB.close()
+        // 复位
+        store.setState({ viewMode: 'browse', compareLayout: 'side', slotA: null, slotB: null, diffTolerance: 16, diffColormap: 'inferno' })
+        S().setViewMode('browse')
+        await wait(200)
+        out.ok = out.panelShown && out.canvasShown && out.diffNonBlack && out.sameBlack && out.tolEffect && out.cmapDiffers
+        return out
+      })()`)
+      console.log(`[SMOKE] 差值热图: ${JSON.stringify(diffAssert)}`)
+      if (!diffAssert.ok) {
+        clearTimeout(killer)
+        return fail(`差值热图不符预期: ${JSON.stringify(diffAssert)}`)
       }
 
       // b) 等 3 秒让渲染进程 UI 稳定后截图（capturePage 偶发 UnknownVizError，重试 3 次）

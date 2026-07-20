@@ -5,6 +5,7 @@ import {
   ChartColumn,
   CircleHelp,
   Columns2,
+  Flame,
   FolderOpen,
   Grid2X2,
   Grid3X3,
@@ -28,7 +29,7 @@ import {
 } from 'lucide-react'
 import { getExtension } from '@/lib/fs-provider'
 import { useAppStore } from '@/store/appStore'
-import type { BrowseMode, CompareLayout, GridLayout, ResampleMode, SortKey, ThemeMode } from '@/store/appStore'
+import type { BrowseMode, CompareLayout, DiffColormap, GridLayout, ResampleMode, SortKey, ThemeMode } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -51,6 +52,13 @@ const GRID_LAYOUTS: { value: GridLayout; label: string }[] = [
   { value: '3x2', label: '3 × 2' },
   { value: '2x3', label: '2 × 3' },
   { value: '3x3', label: '3 × 3' },
+]
+
+const DIFF_COLORMAPS: { value: DiffColormap; label: string }[] = [
+  { value: 'inferno', label: 'Inferno' },
+  { value: 'gray', label: 'Gray（灰度）' },
+  { value: 'viridis', label: 'Viridis' },
+  { value: 'coolwarm', label: 'Coolwarm（发散）' },
 ]
 
 const SORT_ITEMS: { value: SortKey; label: string }[] = [
@@ -98,6 +106,10 @@ export function Toolbar() {
   const setGridLayout = useAppStore((s) => s.setGridLayout)
   const gridSync = useAppStore((s) => s.gridSync)
   const setGridSync = useAppStore((s) => s.setGridSync)
+  const diffColormap = useAppStore((s) => s.diffColormap)
+  const setDiffColormap = useAppStore((s) => s.setDiffColormap)
+  const diffTolerance = useAppStore((s) => s.diffTolerance)
+  const setDiffTolerance = useAppStore((s) => s.setDiffTolerance)
   const nextBatch = useAppStore((s) => s.nextBatch)
   const resetView = useAppStore((s) => s.resetView)
   const rotateCurrent = useAppStore((s) => s.rotateCurrent)
@@ -232,7 +244,47 @@ export function Toolbar() {
             <ToggleGroupItem value="overlay" className="h-7 gap-1 px-2 text-xs" title="叠化 (W 循环)">
               <Layers className="h-3.5 w-3.5" /> 叠化
             </ToggleGroupItem>
+            <ToggleGroupItem value="diff" className="h-7 gap-1 px-2 text-xs" title="差值热图 (D 开关)">
+              <Flame className="h-3.5 w-3.5" /> 差值
+            </ToggleGroupItem>
           </ToggleGroup>
+          {compareLayout === 'diff' && (
+            <div className="flex items-center gap-2 rounded border border-[var(--tv-border2)] px-2 py-0.5" data-diff-panel>
+              <Select value={diffColormap} onValueChange={(v) => setDiffColormap(v as DiffColormap)}>
+                <SelectTrigger className="h-6 w-32 border-0 bg-transparent px-1 text-xs shadow-none" title="差值 colormap">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DIFF_COLORMAPS.map((c) => (
+                    <SelectItem key={c.value} value={c.value} className="text-xs">
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                type="range"
+                min={0}
+                max={128}
+                step={1}
+                value={diffTolerance}
+                onChange={(e) => setDiffTolerance(Number(e.target.value))}
+                className="h-1 w-24 cursor-pointer accent-emerald-500"
+                title={`容差 ${diffTolerance}（≤容差置黑）`}
+                data-diff-tolerance
+              />
+              <input
+                type="number"
+                min={0}
+                max={128}
+                value={diffTolerance}
+                onChange={(e) => setDiffTolerance(Number(e.target.value))}
+                className="h-6 w-12 rounded border border-[var(--tv-border2)] bg-transparent px-1 text-center text-xs"
+                title="容差 0–128"
+                data-diff-tolerance-num
+              />
+            </div>
+          )}
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--tv-text)]" title="同步：两侧共享缩放平移（并排模式）">
             <Switch checked={sync} onCheckedChange={setSync} className="scale-90" /> 同步
           </label>

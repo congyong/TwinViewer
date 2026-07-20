@@ -17,6 +17,7 @@ import { loadSettings, updateSettings } from '@/lib/settings'
 import type {
   BrowseMode,
   CompareLayout,
+  DiffColormap,
   FavoriteEntry,
   NavScope,
   ResampleMode,
@@ -26,7 +27,7 @@ import type {
 import { applyTheme } from '@/lib/theme'
 
 export type ViewMode = 'browse' | 'single' | 'compare' | 'grid'
-export type { BrowseMode, CompareLayout, NavScope, ResampleMode, SortKey, ThemeMode }
+export type { BrowseMode, CompareLayout, DiffColormap, NavScope, ResampleMode, SortKey, ThemeMode }
 export type GridLayout = 'auto' | '1x2' | '2x1' | '2x2' | '3x2' | '2x3' | '3x3'
 export type ProviderKind = 'browser' | 'electron'
 
@@ -230,6 +231,10 @@ export interface AppState {
   transformA: ViewTransform
   transformB: ViewTransform
   gridTransforms: Record<number, ViewTransform>
+  diffColormap: DiffColormap
+  diffTolerance: number
+  /** D 键切 diff 前的布局（退出 diff 时还原；会话级不持久化） */
+  diffPrevLayout: CompareLayout
 
   openDirectory: () => Promise<void>
   openPath: (path: string) => Promise<void>
@@ -271,6 +276,10 @@ export interface AppState {
   reconcileNav: (prevIds: string[]) => void
   setCompareLayout: (l: CompareLayout) => void
   cycleCompareLayout: () => void
+  /** D 键：进入差值布局 / 再按返回进入前的布局 */
+  toggleDiffLayout: () => void
+  setDiffColormap: (m: DiffColormap) => void
+  setDiffTolerance: (v: number) => void
   setSync: (v: boolean) => void
   setSplitRatio: (v: number) => void
   setWipeRatio: (v: number) => void
@@ -360,6 +369,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   transformA: newTransform(),
   transformB: newTransform(),
   gridTransforms: {},
+  diffColormap: settings.diffColormap,
+  diffTolerance: settings.diffTolerance,
+  diffPrevLayout: settings.compareLayout === 'diff' ? 'side' : settings.compareLayout,
 
   openDirectory: async () => {
     const provider = getFSProvider()
@@ -813,15 +825,40 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   setCompareLayout: (l) => {
     updateSettings({ compareLayout: l })
-    set({ compareLayout: l })
+    // 从非 diff 布局手动切换（工具栏三档）时记录回退目标；切到 diff 不动 diffPrevLayout（由 toggleDiffLayout 管理）
+    set((s) => (l !== 'diff' && s.compareLayout !== 'diff' ? { compareLayout: l, diffPrevLayout: l } : { compareLayout: l }))
   },
 
   cycleCompareLayout: () =>
     set((s) => {
-      const next: CompareLayout = s.compareLayout === 'wipe' ? 'side' : s.compareLayout === 'side' ? 'overlay' : 'wipe'
+      // W/G 只在 划变→并排→叠化 三档循环；diff 档时回到划变
+      const next: CompareLayout =
+        s.compareLayout === 'wipe' ? 'side' : s.compareLayout === 'side' ? 'overlay' : 'wipe'
       updateSettings({ compareLayout: next })
-      return { compareLayout: next }
+      return { compareLayout: next, diffPrevLayout: next }
     }),
+
+  toggleDiffLayout: () =>
+    set((s) => {
+      if (s.compareLayout === 'diff') {
+        const back = s.diffPrevLayout === 'diff' ? 'side' : s.diffPrevLayout
+        updateSettings({ compareLayout: back })
+        return { compareLayout: back }
+      }
+      updateSettings({ compareLayout: 'diff' })
+      return { compareLayout: 'diff', diffPrevLayout: s.compareLayout }
+    }),
+
+  setDiffColormap: (m) => {
+    updateSettings({ diffColormap: m })
+    set({ diffColormap: m })
+  },
+
+  setDiffTolerance: (v) => {
+    const t = Math.min(128, Math.max(0, Math.round(v)))
+    updateSettings({ diffTolerance: t })
+    set({ diffTolerance: t })
+  },
 
   setSync: (v) => {
     updateSettings({ sync: v })

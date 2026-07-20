@@ -89,7 +89,7 @@ export interface CliOpenPayload {
   flags: {
     recursive?: boolean
     theme?: 'dark' | 'light' | 'system'
-    layout?: 'wipe' | 'side' | 'overlay' | 'grid'
+    layout?: 'wipe' | 'side' | 'overlay' | 'diff' | 'grid'
   }
   /** kind=folder 时：路径是文件（打开所在文件夹并定位选中） */
   isFile: boolean
