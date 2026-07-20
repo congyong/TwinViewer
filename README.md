@@ -93,6 +93,7 @@
 - **pin 保护**：正在显示的图层由 ViewerPane 通过 `pinDecoded()` 加保护计数，**在显图不可被淘汰**；极端情况（全部 pinned）允许暂时超预算，绝不淘汰在显图，unpin 后补淘汰
 - **预取策略（并发 ≤3）**：进入对比（A/B 或网格）时预解码整个选中集合；对比会话内换槽 / 下一对 / 下一组 / 胶片条点选 / ←→ 导航都命中缓存，**零重解码**；单图模式预取当前张 ±1
 - **切换缩放算法零解码**：bitmap 只与 entry.id 关联，重采样算法仅影响「bitmap → 屏幕」的绘制（Canvas 平滑参数或 CSS `image-rendering`），**不触碰缓存**；调试验证：`localStorage` 设 `twinview.debugCache=1` 后切算法，console 无「未命中」日志
+- **双缓冲无缝切图**：新图就绪前 ViewerPane 保留旧帧（不清空、不卸载旧图层），缓存命中经 `peekDecoded` 同步取帧（layout effect 内当帧渲染，无 await 间隙）；Canvas 重采样在图像源变化时立即绘制（跳过防抖），黑背景仅在真正无图时出现
 - **调试日志**：`twinview.debugCache=1` 时输出命中 / 未命中 / 入缓存（含 MB 占用）/ 淘汰 / 清空
 - **清空时机**：退出对比/网格返回浏览、打开/重扫文件夹时全量释放（在途解码结果落地即弃，不回填缓存）
 - 渲染层：canvas 重采样直接 `drawImage(bitmap)`；普通 `<img>` 模式用缓存的 blob URL，**natural 尺寸从缓存读取**（切换不闪烁）；缩放同步几何逻辑不受影响
@@ -103,7 +104,7 @@
 - **邻近**：始终 `image-rendering: pixelated`，硬边缘无平滑
 - **双线性\***：Canvas `drawImage` + `imageSmoothingQuality: 'low'` 重采样（近似）
 - **双立方\***：Canvas `drawImage` + `imageSmoothingQuality: 'high'` 重采样（近似）
-- \* 双线性 / 双立方为 **Canvas 平滑品质的近似实现**，并非逐像素卷积；缩放过程中 120ms 防抖重绘（停手后出清图），Canvas backing store 上限 4096px；绘制源取自会话解码缓存的 ImageBitmap；选择持久化到 localStorage；**切换算法不触发重新解码**（见上节）
+- \* 双线性 / 双立方为 **Canvas 平滑品质的近似实现**，并非逐像素卷积；连续缩放过程中 120ms 防抖重绘（停手后出清图；**切图换源时立即绘制，无黑帧**），Canvas backing store 上限 4096px；绘制源取自会话解码缓存的 ImageBitmap；选择持久化到 localStorage；**切换算法不触发重新解码**（见上节）
 
 ### 信息浮层与直方图（两个独立开关）
 - **信息浮层（I 键 / 工具栏 i 按钮）**：文件名、像素尺寸、文件大小、当前缩放、序号 (i/N) + **EXIF**（exifr 解析：拍摄时间、相机、镜头、ISO、光圈、快门、焦距、GPS，按图片缓存）

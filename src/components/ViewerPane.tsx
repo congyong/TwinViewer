@@ -2,24 +2,32 @@
  * 通用图像查看窗格：
  * - 图层渲染（wipe 裁剪 / overlay 透明度）、fit/自由缩放、拖拽平移（位移存为渲染尺寸分数）、
  *   滚轮锚点缩放、双击（全屏切换 或 适应↔100%）、R/L 旋转（transform.rotation 角度制）
- * - 重采样：邻近/自动走 <img>（imageRendering 控制），双线性/双立方走 Canvas 平滑近似（防抖 120ms）
- * - 解码走会话缓存；在显期间 pinDecoded() 保护图层不被字节预算 LRU 淘汰
+ * - 重采样：邻近/自动走 <img>（imageRendering 控制），双线性/双立方走 Canvas 平滑近似
+ * - 解码统一走会话缓存（decode-cache），显示层与分析层（直方图/EXIF/探针）共享同一份 bitmap
+ * - **双缓冲无缝切图**：新图未就绪前保留旧帧（不清空、不卸载旧图层），就绪后原子交换；
+ *   缓存命中时经 peekDecoded 同步取帧（layout effect 内当帧渲染，无 await 间隙、无黑帧）；
+ *   切图且命中时 Canvas 立即绘制（跳过 120ms 防抖，防抖只留给连续缩放重采样）
+ * - 在显帧始终持有 pin（pinDecoded），过渡期新旧帧同时受保护，绝不被 LRU 淘汰
  * - ALT 颜色探针：按住 ALT 显示原图坐标 + RGB 浮签（经当前 transform 逆映射，含旋转），
  *   ALT+单击取样到侧栏「取样记录」（拦截该点击，不触发平移/激活/双击）
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ImageEntry } from '@/lib/fs-provider'
 import { clamp } from '@/lib/format'
 import type { ViewTransform } from '@/store/appStore'
 import { useAppStore } from '@/store/appStore'
-import { getDecoded, pinDecoded, type DecodedImage } from '@/lib/decode-cache'
+import { getDecoded, peekDecoded, pinDecoded, type DecodedImage } from '@/lib/decode-cache'
 import { probePixel, type PixelRGBA } from '@/lib/pixel-probe'
 import { cn } from '@/lib/utils'
 
 const MIN_ZOOM = 0.02
 const MAX_ZOOM = 64
 
-/** 双线性/双立方的 Canvas 平滑绘制（尺寸变化 120ms 防抖重绘；bitmap 只随 entry 变，切算法零解码） */
+/**
+ * 双线性/双立方的 Canvas 平滑绘制。
+ * 防抖策略：**图像源（bitmap/img）变化 = 立即绘制**（切图无等待，layout effect 内同步上屏）；
+ * 仅尺寸/质量变化（连续缩放）才 120ms 防抖，停手后出清图。
+ */
 function CanvasSmooth({
   bitmap,
   url,
@@ -52,10 +60,13 @@ function CanvasSmooth({
   }, [bitmap, url])
 
   const source = bitmap ?? img
+  const prevSourceRef = useRef<ImageBitmap | HTMLImageElement | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!source || rw <= 0 || rh <= 0) return
-    const timer = setTimeout(() => {
+    const immediate = prevSourceRef.current !== source
+    prevSourceRef.current = source
+    const draw = () => {
       const canvas = ref.current
       if (!canvas) return
       const cw = Math.min(Math.max(1, Math.round(rw)), 4096)
@@ -70,7 +81,12 @@ function CanvasSmooth({
       const sw = bitmap ? bitmap.width : (source as HTMLImageElement).naturalWidth
       const sh = bitmap ? bitmap.height : (source as HTMLImageElement).naturalHeight
       ctx.drawImage(source, 0, 0, sw, sh, 0, 0, cw, ch)
-    }, 120)
+    }
+    if (immediate) {
+      draw() // 切图/新源：当帧同步绘制（pre-paint），无黑帧
+      return
+    }
+    const timer = setTimeout(draw, 120) // 连续缩放：防抖重绘
     return () => clearTimeout(timer)
   }, [source, bitmap, rw, rh, quality])
 
@@ -106,6 +122,14 @@ interface ViewerPaneProps {
   probeLayer?: number
 }
 
+/** 一帧完整画面：图层定义 + 解码产物 + 自然尺寸（原子交换的最小单位） */
+interface Frame {
+  key: string
+  layers: LayerSpec[]
+  decoded: (DecodedImage | null)[]
+  metas: ({ w: number; h: number } | null)[]
+}
+
 export function ViewerPane({
   layers,
   transform,
@@ -127,8 +151,10 @@ export function ViewerPane({
   const addSample = useAppStore((s) => s.addSample)
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
-  const [metas, setMetas] = useState<({ w: number; h: number } | null)[]>([])
-  const [decodedList, setDecodedList] = useState<(DecodedImage | null)[]>([])
+  // 双缓冲：frame 为当前上屏帧；切图时保留旧帧直到新帧就绪
+  const [frame, setFrame] = useState<Frame | null>(null)
+  /** 当前上屏帧持有的 unpin 函数（过渡期内旧帧 pin 与新帧 pin 同时存活） */
+  const framePinsRef = useRef<(() => void)[]>([])
   const dragRef = useRef<{
     pointerId: number
     startX: number
@@ -152,36 +178,48 @@ export function ViewerPane({
 
   const layerKey = useMemo(() => layers.map((l) => l.entry.id).join('|'), [layers])
 
-  const reportMeta = useCallback(
-    (idx: number, w: number, h: number) => {
-      setMetas((prev) => {
-        const next = [...prev]
-        next[idx] = { w, h }
-        return next
-      })
-      if (idx === 0) onMeta?.(w, h)
-      layers[idx]?.onMeta?.(w, h)
-    },
-    [onMeta, layers],
-  )
-
-  // 图层解码：在显期间 pin 住解码产物，防止被字节预算 LRU 淘汰
+  // 卸载时释放当前帧的 pin
   useEffect(() => {
+    return () => {
+      for (const u of framePinsRef.current) u()
+      framePinsRef.current = []
+    }
+  }, [])
+
+  /**
+   * 图层解码（双缓冲交换）：
+   * - 缓存全部命中 → peekDecoded 同步 finish（layout effect 内当帧上屏）
+   * - 否则异步解码，期间旧帧保留（不黑屏）；就绪后原子交换并释放旧帧 pin
+   */
+  useLayoutEffect(() => {
     let disposed = false
+    let consumed = false
     const unpins = layers.map((l) => pinDecoded(l.entry.id))
-    setDecodedList(layers.map(() => null))
-    setMetas(layers.map(() => null))
     setProbe(null)
-    Promise.all(layers.map((l) => getDecoded(l.entry))).then((list) => {
+    const finish = (decoded: (DecodedImage | null)[]) => {
       if (disposed) return
-      setDecodedList(list)
-      list.forEach((d, i) => {
-        if (d) reportMeta(i, d.natural.w, d.natural.h)
+      consumed = true
+      const metas = decoded.map((d) => (d ? { w: d.natural.w, h: d.natural.h } : null))
+      setFrame({ key: layerKey, layers, decoded, metas })
+      // 新帧已上屏：释放旧帧 pin，新帧 pin 转交 framePinsRef 持有
+      for (const u of framePinsRef.current) u()
+      framePinsRef.current = unpins
+      metas.forEach((m, i) => {
+        if (!m) return
+        if (i === 0) onMeta?.(m.w, m.h)
+        layers[i]?.onMeta?.(m.w, m.h)
       })
-    })
+    }
+    const peeked = layers.map((l) => peekDecoded(l.entry.id))
+    if (layers.length > 0 && peeked.every((d) => d !== null)) {
+      finish(peeked)
+    } else {
+      void Promise.all(layers.map((l) => getDecoded(l.entry))).then(finish)
+    }
     return () => {
       disposed = true
-      for (const u of unpins) u()
+      // 未完成交换即被取代/卸载：本 effect 自己持有的 pin 自行释放
+      if (!consumed) for (const u of unpins) u()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerKey])
@@ -226,7 +264,12 @@ export function ViewerPane({
     }
   }, [])
 
-  const primaryMeta = metas[0] ?? null
+  // 上屏帧选取：layerKey 未变时用 props layers（叠化透明度等实时生效）；切换中保留旧帧
+  const stale = frame !== null && frame.key !== layerKey
+  const shownLayers = frame === null ? [] : stale ? frame.layers : layers
+  const shownDecoded = frame?.decoded ?? []
+  const shownMetas = frame?.metas ?? []
+  const primaryMeta = shownMetas[0] ?? null
   const rotated90 = transform.rotation % 180 !== 0
 
   // fit 缩放：旋转 90/270 时按交换后的宽高适应；夹取 [MIN_ZOOM, MAX_ZOOM]
@@ -242,14 +285,14 @@ export function ViewerPane({
   /** 图层几何：渲染尺寸 rw/rh 与中心位移（fit 模式无位移；free 按渲染尺寸分数） */
   const layerGeom = useCallback(
     (idx: number) => {
-      const meta = metas[idx] ?? null
+      const meta = shownMetas[idx] ?? null
       const rw = meta ? meta.w * effZoom : 0
       const rh = meta ? meta.h * effZoom : 0
       const px = transform.mode === 'fit' ? 0 : transform.panFX * rw
       const py = transform.mode === 'fit' ? 0 : transform.panFY * rh
       return { rw, rh, px, py }
     },
-    [metas, effZoom, transform.mode, transform.panFX, transform.panFY],
+    [shownMetas, effZoom, transform.mode, transform.panFX, transform.panFY],
   )
 
   // 有效缩放变化上报（状态栏/信息浮层）
@@ -302,7 +345,7 @@ export function ViewerPane({
   /** 探针坐标换算：容器坐标 → 原图像素坐标（减中心+位移 → 按 -rotation 反旋 → 归一化 → ×原图尺寸） */
   const computeProbe = (clientX: number, clientY: number) => {
     const el = containerRef.current
-    const meta = metas[probeLayer]
+    const meta = shownMetas[probeLayer]
     if (!el || !meta) return null
     const rect = el.getBoundingClientRect()
     const mx = clientX - rect.left
@@ -327,7 +370,7 @@ export function ViewerPane({
   /** 更新探针浮签（请求序号防过期） */
   const updateProbe = (clientX: number, clientY: number) => {
     const p = computeProbe(clientX, clientY)
-    const layer = layers[probeLayer]
+    const layer = shownLayers[probeLayer]
     if (!p || !p.inside || !layer) {
       setProbe(null)
       return
@@ -345,7 +388,7 @@ export function ViewerPane({
     if (e.altKey) {
       e.preventDefault()
       const p = computeProbe(e.clientX, e.clientY)
-      const layer = layers[probeLayer]
+      const layer = shownLayers[probeLayer]
       if (p?.inside && layer) {
         void probePixel(layer.entry, p.x, p.y).then((rgba) => {
           if (rgba) {
@@ -410,7 +453,7 @@ export function ViewerPane({
   // wipe 分割线位置（相对容器左边界的 x 像素）
   const WIPE_LAYER = 1
   let wipeX: number | null = null
-  if (wipe && metas[WIPE_LAYER] && containerSize.w > 0) {
+  if (wipe && shownMetas[WIPE_LAYER] && containerSize.w > 0) {
     const g = layerGeom(WIPE_LAYER)
     if (g.rw > 0) wipeX = containerSize.w / 2 - g.rw / 2 + g.px + wipe.ratio * g.rw
   }
@@ -456,10 +499,10 @@ export function ViewerPane({
       }}
       onDoubleClick={onDoubleClick}
     >
-      {layers.map((layer, i) => {
+      {shownLayers.map((layer, i) => {
         const g = layerGeom(i)
-        const meta = metas[i]
-        const decoded = decodedList[i]
+        const meta = shownMetas[i]
+        const decoded = shownDecoded[i]
         const clip = wipe && i === WIPE_LAYER ? `inset(0 0 0 ${wipe.ratio * 100}%)` : layer.clipPath
         if (!decoded) return null
         return (
@@ -491,12 +534,12 @@ export function ViewerPane({
                 draggable={false}
                 className="h-full w-full"
                 style={{ imageRendering: resample === 'nearest' || effZoom > 4 ? 'pixelated' : 'auto' }}
-                onLoad={(e) => reportMeta(i, e.currentTarget.naturalWidth || 1, e.currentTarget.naturalHeight || 1)}
               />
             )}
           </div>
         )
       })}
+      {/* 黑背景/加载提示仅在真正无图时出现（双缓冲期间旧帧始终上屏） */}
       {!primaryMeta && (
         <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">加载中…</div>
       )}

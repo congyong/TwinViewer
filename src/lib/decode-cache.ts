@@ -192,6 +192,15 @@ export function getDecoded(entry: ImageEntry): Promise<DecodedImage | null> {
   return p
 }
 
+/** 同步查询缓存：命中即返回并刷新 LRU 时间（用于切图当帧渲染）；未命中返回 null，不触发解码 */
+export function peekDecoded(id: string): DecodedImage | null {
+  const hit = cache.get(id)
+  if (!hit) return null
+  hit.last = Date.now()
+  log('命中', id.slice(-48), '预算占用', fmtMB(totalBytes))
+  return hit.value
+}
+
 /** 预解码一批图片（并发限制，默认 3）；已在缓存中的跳过 */
 export async function preloadDecode(entries: ImageEntry[], concurrency = 3): Promise<void> {
   const queue = entries.filter((e) => !cache.has(e.id) && !inflight.has(e.id))
