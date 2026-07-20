@@ -43,8 +43,13 @@
 | `copy-files` | `(sources: string[], targetDir: string)` | `{ok: string[], failed: {name,error}[]}` | 重名自动 `- 副本` / `- 副本 (n)` |
 | `make-dir` | `(parent: string, name: string)` | `{ok: boolean, error?: string}` | 非法字符 `\/:*?"<>\|` 与重名校验 |
 | `trash-items` | `(paths: string[])` | `{ok, failed}` | `shell.trashItem` 进回收站 |
+| `set-window-background` | `(color: string)` | `void` | 主题同步窗口背景（#rrggbb 校验） |
+| `special-dirs` | — | `{name,path}[]` | 打开对话框快捷入口：桌面/图片/文档/下载/主目录 + win32 枚举 C–Z 盘符 |
+| `browse-dir` | `(dir: string \| null)` | `{path, parent, dirs}` | null → 顶层盘符/根；否则列一层子目录（复用 listDirsLayer） |
+| `dir-image-preview` | `(dir: string, limit: number)` | `{count, capped, images[]}` | 递归计数（20000 防爆上限）+ 前 limit 张（文件优先排序；limit ≤64） |
+| `copy-into` | `(sources: string[], targetDir: string)` | `{ok, failed}` | 拖放递归复制（文件/目录；重名 `- 副本`；目录 ok 记 `name/`） |
 
-另暴露 `platform`、`versions`。`twinview://local/<encodeURIComponent(绝对路径)>` 由主进程 `net.fetch(pathToFileURL(...))` 提供，**仅供 `<img>` 显示**；Chromium 在 `file://` 页面禁止 fetch 自定义协议（冒烟中 fetchProbe 失败是**预期行为**），分析层一律走 `read-file-buffer` → blob。
+另暴露 `platform`、`versions`、`getPathForFile`（`webUtils.getPathForFile`，拖放 File → 绝对路径）。`twinview://local/<encodeURIComponent(绝对路径)>` 由主进程 `net.fetch(pathToFileURL(...))` 提供，**仅供 `<img>` 显示**；Chromium 在 `file://` 页面禁止 fetch 自定义协议（冒烟中 fetchProbe 失败是**预期行为**），分析层一律走 `read-file-buffer` → blob。
 
 ---
 
@@ -78,7 +83,7 @@
   2. 否则 `Promise.all(getDecoded)` 异步解码，**期间旧帧完整保留**（不清空、不卸载），就绪后一次性交换；
   3. finish 时释放旧帧 pin、转持新帧 pin（过渡期新旧同时受保护）；effect 清理时若未消费（被更快切换取代）自行释放本批 pin；组件卸载统一释放。
 - **stale 判定**：`frame.key !== layerKey` 时显示旧帧；key 相同则用 props layers（叠化透明度滑块实时生效）。
-- **CanvasSmooth（双线性/双立方路径）防抖分流**：**图像源（bitmap/img）变化立即绘制**（useLayoutEffect，pre-paint）；仅尺寸/质量变化（连续缩放）才 120ms 防抖。canvas backing store 上限 4096px。
+- **CanvasSmooth（软件重采样路径）防抖分流**：**图像源（bitmap/img）变化立即绘制**（useLayoutEffect，pre-paint）；仅尺寸/质量变化（连续缩放）才 120ms 防抖。canvas backing store 上限 4096px。`resample` 为 BIFant/双线性/双立方/Lanczos 时：先 `imageSmoothing` 平滑预览，停手 ~150ms 后调 `resampler.ts` CPU 精确重绘（可取消，旧任务随新调度取消）。
 - `<img>` 路径（自动/邻近）：`imageRendering: pixelated` 当 `resample==='nearest'` 或有效缩放 >400%。
 - **ViewTransform**（appStore 定义）：`{mode: 'fit'|'free', zoom, panFX, panFY, rotation(角度制)}`。
   - 有效缩放 `oe = fit ? fitZoom : zoom`；fitZoom 按容器/图片（旋转 90/270 交换宽高）计算并夹取 **[0.02, 64]**；
@@ -98,6 +103,7 @@
 - 操作目标：右键项在勾选集合内 → 视野内全部勾选项；否则仅右键项。
 - 重名副本命名 `copyNameOf(name, n)` 在主进程与渲染端**各有一份实现，需保持同步**。
 - FS Access：操作前 `ensureReadWrite` 按需申请；删除 = `handle.remove()` 直删（Chrome 110+，不进回收站）；webkitdirectory 回退全部禁用（`writeSupported` / `writeUnsupportedReason`）。
+- **系统拖放**（ThumbnailGrid 主容器 onDragOver/Leave/Drop，投放指示层提示可写性）：Electron 走 `webUtils.getPathForFile` → `copy-into` IPC（主进程递归，含目录）；浏览器 FS Access 走 `dropItemsFromDataTransfer`（`webkitGetAsEntry` 递归遍历目录，readEntries 循环读空批）→ `dropToDirectory` 递归写入（文件/目录重名都走 `copyNameOf` 副本；每 10 项更新 toast 进度）。
 - 操作成功后 `rescan()`（重扫保留偏好，勾选/槽位/视图重置——见 freshState）。
 
 ### 2.5 浏览网格：子文件夹 / 面包屑 / 显示模式（`src/components/ThumbnailGrid.tsx`）
@@ -113,24 +119,51 @@
   - **像素尺寸**：`<img onLoad>` 读 `naturalWidth/Height`，模块级 `dimsCache`（Map，无上限，会话内有效）避免滚动闪烁；**不经 decode-cache**（小图直读 `getUrl()`，与缩略图同策略）。
   - 图片行双击进单图、单击 `setCurrent`（isCurrent 行 `scrollIntoView` 与胶片条联动）、右键同图标档文件操作菜单；勾选行底色 `bg-sky-600/15`。
 
+### 2.6 设置收口（`src/lib/settings.ts`）
+
+- **单 key 持久化**：`twinview.settings` = `{version: 1, values: SettingsData}`；模块级缓存 `loadSettings()` 启动读一次，`updateSettings(patch)` 合并 + 校验 + 写盘（appStore 全部偏好 setter 走它）。
+- `sanitize()` 逐字段校验（枚举白名单 / 数值夹取 / favorites 结构过滤），损坏字段回退默认；无新 key 时 `migrateLegacy()` 从旧散 key（`twinview.favorites/.splitRatio/...`）迁移一次（旧 key 保留不删）。
+- **递归默认关**：`DEFAULT_SETTINGS.recursive = false`（扫描仍始终递归全扫，这只是视野默认）。
+- 类型（`BrowseMode/SortKey/ResampleMode/CompareLayout/NavScope/ThemeMode`）在此定义，appStore re-export 供组件沿用旧导入路径。
+
+### 2.7 主题三档（`src/lib/theme.ts` + `src/index.css` 变量体系）
+
+- `applyTheme('dark'|'light'|'system')`：`dark` class 挂 `<html>`；`system` 经 `matchMedia('(prefers-color-scheme: dark)')` 监听系统切换；Electron 下同步 `set-window-background` IPC（防亮主题白闪）。
+- `index.css` 定义 `--tv-*` 语义变量双套（`:root` 亮 / `.dark` 暗）：`--tv-bg/panel/panel2/card/well/overlay/input/text/text-dim/text-faint/soft/hover/line`；组件一律用 `bg-[var(--tv-*)]` / `text-[var(--tv-*)]`，**禁止再写 `bg-neutral-900` 这类硬编码**。
+- **有意保留的固定色**：黑色浮层族（ViewerPane 标题/探针浮签、InfoOverlay、toast）固定 `bg-black/..` + `text-neutral-200`；wipe 手柄固定浅色。新增浮层注意归类。
+- `index.html` 内联首帧防闪脚本：paint 前读 `twinview.settings` 预置 `dark` class（system 按 matchMedia 求值）。
+
+### 2.8 软件重采样（`src/lib/resampler.ts`）
+
+- 可分离两遍卷积：水平 `sw×sh → tw×sh`（Float32 中间缓冲）→ 垂直 `→ tw×th`；某一维尺寸不变则跳过该遍。
+- 核：BIFant 盒式（support 0.5）/ 双线性三角（1）/ 双立方 Catmull-Rom a=-0.5（2）/ Lanczos-3 sinc 窗（3）；缩小时核按 1/scale 加宽抗混叠；权重按输出像素预计算 `{start, weights}` 并归一化。
+- 分片（256 行）`setTimeout(0)` 让出主线程；`ResampleHandle.cancel()` 取消（ViewerPane 调度新任务前取消旧的）；LRU 8 张（key = `条目id|算法|宽x高`，ImageBitmap，`clearResampleCache()` 全清）。
+- 源像素：decode-cache 的 bitmap 画离屏 canvas 取 `getImageData`（同探针链路，不污染 canvas）。
+
+### 2.9 打开文件夹对话框（`OpenFolderDialog.tsx` / `PendingOpenConfirm.tsx`）
+
+- **Electron**（`openDirectory()` → `setOpenFolderDialog(true)`）：左栏 = `special-dirs` 快捷入口 + `browse-dir` 子目录列表（含 ↑ 上级，FolderIcon + 名称 + 本层图片数）；右栏 = `dir-image-preview(dir, 12)` 缩略图（twinview://）+ 递归计数；底栏「系统对话框选择… / 取消 / 打开此文件夹」（无图禁用）。初始位置 = 当前已打开文件夹，fallback「图片」。
+- **浏览器**：FS Access 无法选前预览 → `openDirectory()` pick + 扫描后存 `pendingOpen`，`PendingOpenConfirm` 显示前 12 张 + 总数，「确认打开（confirmPendingOpen）/ 重新选择（discardPendingOpen(true)）/ 取消」。
+
 ---
 
 ## 3. 状态管理（`src/store/appStore.ts`，zustand 单一 store）
 
 **state 分组**：
 - 目录与列表：`providerKind, dir, loading, loadError, images, recursive, currentPath, treeChildren, treeExpanded, ancestors`
+- 打开对话框：`openFolderDialogOpen`（Electron 自绘对话框）、`pendingOpen`（浏览器选择后确认条）
 - 视野与排序：`formatFilter, sortKey, sortAsc, thumbSize, browseMode`；勾选/剪贴板：`checked, clipboard`
 - 视图：`viewMode('browse'|'single'|'compare'|'grid'), currentId, fullscreenCell, physicalFullscreen`
 - A/B：`slotA, slotB, activeSlot, compareLayout, sync, splitRatio, wipeRatio, overlayOpacity, overlaySwapped, transformA, transformB, sharedTransform`
 - 网格：`gridIds, gridActiveIdx, gridSync, gridLayout, gridTransforms`；单图：`singleTransform`
-- 开关：`navScope, resample, infoVisible, histoVisible, sidebarOpen, filmstripOpen, helpOpen`
+- 开关：`navScope, resample, theme, infoVisible, histoVisible, sidebarOpen, filmstripOpen, helpOpen`
 - 收藏/取样：`favorites({path,addedAt}[]), samples(SampleRecord[]，≤10 条，seq 自增)`
 
 **Action 分组**：打开/扫描（`openDirectory/openPath/rescan/loadTreeChildren/loadAncestors/toggleTreeNode`）；视野（`setRecursive/setCurrentPath/navigateUp/setFormatFilter/setSortKey/toggleSortAsc/setThumbSize/setBrowseMode`）；勾选（`toggleChecked/checkAll/clearChecked/setClipboard`）；导航（`setViewMode/setCurrent/enterSingle/navigate/reconcileNav`）；A/B（`startCompareFromChecked/ensureSlots/setSlot/assignCurrentToSlot/swapSlots/toggleActiveSlot/nextPair/setCompareLayout/cycleCompareLayout/setSync/setSplitRatio/setWipeRatio/setOverlayOpacity/toggleOverlaySwapped`）；网格（`setGridLayout/setGridSync/setGridActiveIdx/setGridCellImage/setGridTransform/nextBatch`）；变换（`setSingleTransform/setSharedTransform/setTransformA/setTransformB/rotateCurrent/resetView`）；偏好（`setNavScope/setResample/toggleInfo/toggleHisto/toggleSidebar/toggleFilmstrip/toggleHelp`）；全屏/取样（`setFullscreenCell/togglePhysicalFullscreen/addSample/clearSamples`）；收藏（`addFavorite/removeFavorite`）；清理（`revokeAll`）。
 
 **导出辅助**：`newTransform()`、`getVisibleImages(q)`（scopeOk + 格式过滤 + 排序）、`getNavList(q)`（再按 navScope==='checked' 过滤）、`preloadCurrentContext(s)`（内部：按当前视图预解码——compare=[A,B]、grid=全部格、single=当前±1）、`BROWSE_MODE_SIZE`（图标三档固定尺寸映射）。
 
-**持久化键**（localStorage）：`twinview.favorites / .splitRatio / .wipeRatio / .resample / .navScope / .compareLayout / .histoVisible / .browseMode / .debugCache`（调试开关）。`freshState(dir, images)` 在打开/重扫时重置浏览状态但**保留全部偏好**。dev 构建下 store 暴露为 `window.__twinviewStore`（冒烟 UI 自动化与控制台调试；生产构建由 Rollup 消除）。
+**持久化**：全部偏好收口在单 key `twinview.settings`（见 §2.6；仅调试开关 `twinview.debugCache` 独立）。`freshState(dir, images)` 在打开/重扫时重置浏览状态但**保留全部偏好**。dev 构建下 store 暴露为 `window.__twinviewStore`（冒烟 UI 自动化与控制台调试；生产构建由 Rollup 消除）。
 
 ---
 
@@ -167,7 +200,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 ## 6. 已知限制与技术债、排错指引
 
-**已知限制**（同 README，不重复展开）：macOS/Windows 均**未签名**（Gatekeeper / SmartScreen 首次警示）；浏览器回退模式只读；FS Access 删除不可恢复；双线性/双立方为 Canvas 近似；网格 ≤9 张；数万张无虚拟滚动；旋转不写回文件。
+**已知限制**（同 README，不重复展开）：macOS/Windows 均**未签名**（Gatekeeper / SmartScreen 首次警示）；浏览器回退模式只读（含拖放）；FS Access 删除不可恢复；软件重采样为 CPU 卷积（大图停手后才出精确图）；网格 ≤9 张；数万张无虚拟滚动；旋转不写回文件。
 
 **技术债**：
 - `template-info.md` 为脚手架模板遗留，可删；
@@ -181,7 +214,7 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 
 **排错指引**：
 - 解码缓存行为：`localStorage.twinview.debugCache='1'` → console 看 命中/未命中/入缓存/淘汰/预算；
-- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、**UI 自动化：openPath 打开测试目录后断言子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 后面包屑段数与 `navigateUp()` 回根**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
+- 冒烟自检：`npm run build && TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .`（断言点：10 图扫描、list-dirs、path-ancestors、read-file-buffer 像素非零、文件操作三件套、打开对话框 IPC（special-dirs/browse-dir/dir-image-preview count=10+4 张）、**UI 自动化：openPath 后断言递归关 8 张 ↔ 开 10 张、子文件夹卡片 `[data-folder]`、面包屑 `nav`、列表模式行数、`setCurrentPath('sub')` 面包屑段数与 `navigateUp()` 回根、主题亮/暗 class 切换、打开文件夹对话框渲染（含 sub 子目录按钮）**、`<img>` 协议探测；输出 `[SMOKE]`，失败 `[SMOKE-FAIL]` 退出码 1）；
 - `twinview://` 在 file:// 页面 fetch 失败是**预期**（Chromium 限制）；分析层必须走 `read-file-buffer` → blob，否则 canvas 被污染（`getImageData` 抛 SecurityError）；
 - 黑闪/闪屏类问题：先看 ViewerPane 帧模型（stale 判定、finish 时机、pin 平衡），再看 CanvasSmooth 防抖分流。
 
@@ -194,3 +227,4 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 3. TS 严格模式：`noUnusedLocals` / `verbatimModuleSyntax`（类型导入用 `import type`）；同一文件的多个 Edit 不要放在同一批工具调用里。
 4. 新增 UI 文案保持中文；快捷键改动需同步 `HelpOverlay.tsx` 表格与 README 快捷键表。
 5. 改 IPC 需三处同步：`electron/main.cjs`（实现）、`electron/preload.cjs`（桥接）、`src/lib/fs-provider.ts`（TwinviewBridge 类型），并更新本文 IPC 表与冒烟断言（如适用）。
+6. 新增/调整偏好一律走 `settings.ts`（`SettingsData` + `DEFAULT_SETTINGS` + `sanitize` 校验三处同步），禁止新增散落 localStorage key；新增 UI 颜色一律用 `--tv-*` 变量（黑浮层族除外，见 §2.7）。

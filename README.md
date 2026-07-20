@@ -18,17 +18,19 @@
 
 | 模块 | 能力 |
 | --- | --- |
-| 浏览 | 缩略图网格（懒加载）+ **显示模式四档**（大 / 中 / 小图标、列表，持久化）；**子文件夹条目**（预览拼贴 + 计数，双击进入）排在图片前；**面包屑路径导航**（Backspace 返回上级）；递归子文件夹、格式过滤、名称/日期/大小排序（列表模式点列头）、勾选、右键文件操作（复制/粘贴/新建文件夹/删除） |
+| 浏览 | 缩略图网格（懒加载）+ **显示模式四档**（大 / 中 / 小图标、列表，持久化）；**子文件夹条目**（Windows 风文件夹图标 + 预览拼贴 + 计数，双击进入）排在图片前；**面包屑路径导航**（Backspace 返回上级）；含子文件夹开关（**默认关**，持久化）、格式过滤、名称/日期/大小排序（列表模式点列头）、全选 / 清除选择、勾选、右键文件操作（复制/粘贴/新建文件夹/删除）；**系统拖放**文件/文件夹递归复制到当前目录（带投放指示层） |
 | 文件夹树 | 懒加载目录树、祖先链（Electron 可浏览上级目录）、收藏夹（持久化）、ALT 取样记录区 |
+| 打开文件夹 | Electron：自绘对话框（快捷入口 + 子目录浏览 + **所选文件夹图片计数与缩略图预览**，保留系统对话框入口）；浏览器：选择后弹出预览确认条（确认 / 重选 / 取消） |
+| 主题 | 暗色 / 亮色 / 跟随系统三档（工具栏切换，持久化；Electron 窗口背景同步，首帧防闪） |
 | 单图 | 适应窗口 / 100%、滚轮锚点缩放、拖拽平移、R/L 旋转、F 应用内全屏（隐藏侧栏与胶片条） |
 | A/B 对比 | **划变**（同区域对齐 + 可拖分割线）/ **并排**（可拖比例 + 同步开关）/ **叠化**（透明度 onion-skin，可换上下层），W/G 循环；Tab 切激活侧；X 交换；N 下一对 |
 | 多图网格 | 勾选 ≥3 张进入（最多 9 张）；自动/手动布局；同步/独立两档；数字键选格；N 下一组 |
 | 解码缓存 | 会话级字节预算 LRU（**1GB**，按 宽×高×4 计）、在显 pin 保护、预取（对比集合 / 单图 ±1）、**双缓冲无缝切图**、调试日志（`twinview.debugCache=1`） |
-| 缩放算法 | 自动 / 邻近 / 双线性* / 双立方*（*为 Canvas 平滑近似；**切算法零解码**） |
+| 缩放算法 | 自动 / 邻近 / **BIFant\* / 双线性\* / 双立方\* / Lanczos-3\***（\*为软件精确重采样：浏览时平滑预览，停手 ~150ms 后 CPU 可分离卷积精确重绘，LRU 缓存 8 张；**切算法零解码**） |
 | ALT 颜色探针 | 按住 ALT 显示原图坐标 + RGB(A) 浮签（经 transform 逆映射，含旋转）；ALT+单击记入侧栏取样列表（≤10 条） |
 | 信息浮层 | 基本信息 + EXIF（exifr，按图缓存）；独立开关的直方图（220×100，带值域刻度） |
-| 全屏双模式 | 控件内单格全屏（默认）+ 物理全屏（Fullscreen API，Shift+F，迷你条按钮）；Esc 逐级退出 |
-| 文件操作 | Electron 走 IPC（删除进回收站）；浏览器 FS Access 走句柄（删除为直删，有警示）；webkitdirectory 回退禁用写操作 |
+| 全屏双模式 | 控件内单格全屏（默认）+ 物理全屏（Fullscreen API，Shift+F，迷你条按钮）；物理全屏下迷你条为**悬浮胶囊**（顶部热区淡入、移开淡出）；Esc 逐级退出 |
+| 文件操作 | Electron 走 IPC（删除进回收站；拖放走主进程递归复制）；浏览器 FS Access 走句柄（删除为直删有警示；拖放经 `webkitGetAsEntry` 递归写入，带进度提示）；webkitdirectory 回退禁用写操作 |
 
 ## 截图
 
@@ -90,7 +92,35 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / **UI 自动化（自动打开测试目录，断言子文件夹卡片、面包屑、列表模式行数与 Backspace 返回）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+
+## 持久化配置项
+
+所有用户偏好收口在单个 localStorage key `twinview.settings`（`{version:1, values}`，启动时逐字段校验，旧版散 key 自动迁移一次）：
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `recursive` | `false` | 含子文件夹（浏览视野是否递归） |
+| `theme` | `dark` | 主题：`dark` / `light` / `system`（跟随系统，监听系统切换） |
+| `browseMode` | `medium` | 显示模式：`large` / `medium` / `small` / `list` |
+| `sortKey` / `sortAsc` | `name` / `true` | 排序键（名称/日期/大小）与方向 |
+| `resample` | `auto` | 缩放算法：`auto` / `nearest` / `bifant` / `bilinear` / `bicubic` / `lanczos` |
+| `navScope` | `all` | 导航范围：`all`（全部）/ `checked`（仅勾选） |
+| `compareLayout` | `wipe` | 对比布局：`wipe` / `side` / `overlay` |
+| `splitRatio` / `wipeRatio` / `overlayOpacity` | `0.5` / `0.5` / `0.5` | 并排比例 / 划变线位置 / 叠化透明度 |
+| `histoVisible` | `false` | 直方图显隐 |
+| `favorites` | `[]` | 收藏夹（路径 + 名称） |
+
+### 软件重采样算法说明
+
+| 算法 | 特性 |
+| --- | --- |
+| BIFant | 盒式面积平均（support 0.5），**缩小最干净**，接近整数倍缩小无混叠 |
+| 双线性 | 三角核（support 1），速度快、效果均衡 |
+| 双立方 | Catmull-Rom（a=-0.5，support 2），锐利但边缘略过冲 |
+| Lanczos-3 | sinc 加窗（support 3），**质量最佳**、最慢，缩略图首选 |
+
+实现为 CPU 可分离两遍卷积（先水平后垂直），缩小时核按 1/scale 加宽抗混叠；权重按输出像素预计算；分片 `setTimeout(0)` 让出主线程且可取消；结果按 `条目|算法|尺寸` LRU 缓存 8 张；canvas 目标尺寸夹取 4096px。
 
 ## 技术栈与架构
 
@@ -104,10 +134,10 @@ TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .
 ## 已知限制
 
 - macOS 构建**未签名**（无开发者证书）：首次打开需「右键 → 打开」绕过 Gatekeeper；仅提供 arm64（Apple Silicon）DMG
-- 浏览器模式无法访问所开文件夹的上级目录（浏览器安全模型），祖先链仅 Electron 可用
-- 浏览器回退模式（Firefox/Safari）：始终递归选择、目录树只能反推、**不支持写操作**
+- 浏览器模式无法访问所开文件夹的上级目录（浏览器安全模型），祖先链仅 Electron 可用；打开文件夹为「选择后确认条」而非选前预览（FS Access 限制）
+- 浏览器回退模式（Firefox/Safari）：始终递归选择、目录树只能反推、**不支持写操作与拖放写入**
 - 浏览器 FS Access 的删除为 `handle.remove()` 直删、不进回收站（UI 有警示，需 Chrome 110+）；Electron 删除进回收站
-- 双线性 / 双立方缩放为 Canvas `imageSmoothingQuality` **近似**，非逐像素卷积
+- 软件重采样（BIFant/双线性/双立方/Lanczos）为 CPU 逐像素卷积：大图连续缩放时先平滑预览、停手 ~150ms 后出精确图；canvas 目标尺寸夹取 4096px
 - ALT 探针离屏 canvas 最长边 4096px（超大图按比例取样），缓存上限 4 张
 - 超大文件夹（数万张）未做虚拟滚动；网格对比最多 9 张
 - AVIF / TIFF 等格式依赖浏览器自身解码能力；旋转仅为视图层效果，不写回文件

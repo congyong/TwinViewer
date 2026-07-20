@@ -275,6 +275,30 @@ async function runSmokeTest(win) {
         return fail(`文件操作 IPC 不符预期: ${JSON.stringify(ops)}`)
       }
 
+      // a.5b) 「打开文件夹」对话框 IPC：special-dirs / browse-dir / dir-image-preview
+      const dlg = await win.webContents.executeJavaScript(`(async () => {
+        const out = {}
+        out.specials = (await window.twinview.specialDirs()).map((s) => s.name)
+        const top = await window.twinview.browseDir(null)
+        out.topDirs = top.dirs.length
+        const layer = await window.twinview.browseDir(${JSON.stringify(SMOKE_TEST_DIR)})
+        out.testSubdirs = layer.dirs.map((d) => d.name)
+        const prev = await window.twinview.dirImagePreview(${JSON.stringify(SMOKE_TEST_DIR)}, 4)
+        out.previewCount = prev.count
+        out.previewImages = prev.images.length
+        return out
+      })()`)
+      console.log(`[SMOKE] 打开对话框 IPC: ${JSON.stringify(dlg)}`)
+      const dlgOk =
+        Array.isArray(dlg.specials) && dlg.specials.length >= 3 &&
+        dlg.topDirs >= 1 &&
+        Array.isArray(dlg.testSubdirs) && dlg.testSubdirs.includes('sub') &&
+        dlg.previewCount === 10 && dlg.previewImages === 4
+      if (!dlgOk) {
+        clearTimeout(killer)
+        return fail(`打开对话框 IPC 不符预期: ${JSON.stringify(dlg)}`)
+      }
+
       // a.6) UI 验证：自动打开测试目录 → 子文件夹卡片 / 面包屑 / 列表模式 / Backspace 返回
       const ui = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
@@ -288,6 +312,12 @@ async function runSmokeTest(win) {
         }
         const s = store.getState()
         const out = { images: s.images.length }
+        // 递归视野：先显式关闭验证根层 8 张，再开启验证全量 10 张（与历史持久化状态无关，确定性断言）
+        s.setRecursive(false)
+        await wait(300)
+        out.defaultVisible = document.querySelectorAll('[data-thumb]').length
+        s.setRecursive(true)
+        await wait(300)
         out.hasSubdirNode = (s.treeChildren[''] || []).some((n) => n.name === 'sub')
         out.breadcrumb = document.querySelector('nav') !== null
         await wait(400)
@@ -305,10 +335,25 @@ async function runSmokeTest(win) {
         s.navigateUp()
         out.backToRoot = store.getState().currentPath === ''
         s.setBrowseMode('medium')
+        // 主题三档：亮 → html 无 dark class；暗 → 恢复 dark
+        s.setTheme('light')
+        await wait(150)
+        out.lightOk = !document.documentElement.classList.contains('dark')
+        s.setTheme('dark')
+        await wait(150)
+        out.darkOk = document.documentElement.classList.contains('dark')
+        // 「打开文件夹」对话框：渲染快捷入口 + 子目录 + 预览计数后关闭
+        s.setOpenFolderDialog(true)
+        await wait(1200)
+        const dlgEl = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('打开此文件夹'))
+        out.dialogOpen = !!dlgEl
+        out.dialogHasSub = [...document.querySelectorAll('button')].some((b) => b.textContent.trim().startsWith('sub'))
+        s.setOpenFolderDialog(false)
         await wait(200)
-        out.ok = out.images === 10 && out.hasSubdirNode && out.breadcrumb &&
+        out.ok = out.images === 10 && out.defaultVisible === 8 && out.hasSubdirNode && out.breadcrumb &&
           out.folderCards >= 1 && out.listRows === 10 && out.listFolderRows >= 1 &&
-          out.crumbsAfterEnter >= 2 && out.backToRoot
+          out.crumbsAfterEnter >= 2 && out.backToRoot && out.lightOk && out.darkOk &&
+          out.dialogOpen && out.dialogHasSub
         return out
       })()`)
       console.log(`[SMOKE] UI 验证: ${JSON.stringify(ui)}`)
