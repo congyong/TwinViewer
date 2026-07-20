@@ -1,0 +1,58 @@
+import { useAppStore } from '@/store/appStore'
+
+const SHORTCUTS: { keys: string; desc: string }[] = [
+  { keys: '← / → 或 PgUp / PgDn', desc: '上一张 / 下一张（按当前导航范围循环；对比模式换激活侧，网格模式换激活格）' },
+  { keys: 'R / L', desc: '向右 / 向左旋转 90°（仅视图层，不修改文件）' },
+  { keys: 'F', desc: '单图 / 对比 / 网格 = 进入或退出对应单格全屏（控件内）' },
+  { keys: 'Shift+F', desc: '单格全屏中切换物理全屏（隐藏浏览器 / 窗口边框）' },
+  { keys: 'Alt（按住）', desc: '颜色探针：浮签显示原图坐标与 RGB；ALT+单击记录到侧栏取样列表' },
+  { keys: '1', desc: '实际大小 100%（单图 / 对比）；网格中为激活第 1 格' },
+  { keys: '1 – 9', desc: '网格模式：激活第 N 格' },
+  { keys: '双击图片', desc: '单图：适应窗口 ↔ 100%；对比 / 网格：进入或退出单格全屏' },
+  { keys: 'Esc', desc: '物理全屏 → 单格全屏 → 返回浏览模式（逐级退出）' },
+  { keys: '滚轮', desc: '以鼠标为中心缩放' },
+  { keys: '拖拽', desc: '平移图片' },
+  { keys: 'I', desc: '显示 / 隐藏信息浮层（基本 + EXIF；直方图由工具栏独立开关）' },
+  { keys: '空格', desc: '勾选 / 取消勾选当前图片' },
+  { keys: 'A / B', desc: '浏览 / 单图：把当前图片设为 A / B 槽；对比：选定激活侧' },
+  { keys: 'Tab', desc: '对比：切换激活侧（A ↔ B）；网格：循环激活格' },
+  { keys: 'X', desc: '交换 A/B' },
+  { keys: 'W / G', desc: '循环对比布局（划变 → 并排 → 叠化）' },
+  { keys: 'N', desc: '对比：下一对（仅勾选导航且勾选 ≥4 张）；网格：下一组' },
+  { keys: '?', desc: '打开 / 关闭本帮助' },
+]
+
+export function HelpOverlay() {
+  const open = useAppStore((s) => s.helpOpen)
+  const toggle = useAppStore((s) => s.toggleHelp)
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      onClick={toggle}
+    >
+      <div
+        className="max-h-[80vh] w-[560px] overflow-y-auto rounded-lg border border-border bg-[#2a2a2a] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-3 text-base font-semibold text-neutral-100">快捷键</h2>
+        <table className="w-full text-sm">
+          <tbody>
+            {SHORTCUTS.map((s) => (
+              <tr key={s.keys} className="border-b border-white/5 last:border-0">
+                <td className="py-1.5 pr-3 whitespace-nowrap">
+                  <kbd className="rounded bg-black/50 px-1.5 py-0.5 text-xs text-sky-300">{s.keys}</kbd>
+                </td>
+                <td className="py-1.5 text-neutral-300">{s.desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-3 text-xs text-neutral-500">
+          多图网格对比：浏览模式勾选 ≥ 3 张后点「对比选中」（勾选 2 张为 A/B 对比）。点击任意处或按 Esc / ? 关闭
+        </p>
+      </div>
+    </div>
+  )
+}

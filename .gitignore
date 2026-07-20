@@ -1,0 +1,14 @@
+# 依赖与构建产物
+node_modules/
+dist/
+release/
+
+# 冒烟测试产物
+smoke-output.txt
+smoke-home.png
+
+# 日志与临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

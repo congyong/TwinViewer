@@ -1,0 +1,18 @@
+/* TwinView 应用级样式（布局主要使用 Tailwind 工具类） */
+
+/* 细滚动条，贴近 FastStone 深色风格 */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: #1b1b1b;
+}
+*::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 5px;
+  border: 2px solid #1b1b1b;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
