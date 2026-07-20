@@ -417,6 +417,11 @@ async function runSmokeTest(win) {
         const prev = await window.twinview.dirImagePreview(${JSON.stringify(SMOKE_TEST_DIR)}, 4)
         out.previewCount = prev.count
         out.previewImages = prev.images.length
+        // shallow=true：只列本层（8 张），附本层子文件夹条目，缩略图不含子目录
+        const shallow = await window.twinview.dirImagePreview(${JSON.stringify(SMOKE_TEST_DIR)}, 12, true)
+        out.shallowCount = shallow.count
+        out.shallowDirs = (shallow.dirs || []).map((d) => d.name)
+        out.shallowHasSubImage = shallow.images.some((im) => im.path.includes('sub'))
         return out
       })()`)
       console.log(`[SMOKE] 打开对话框 IPC: ${JSON.stringify(dlg)}`)
@@ -424,7 +429,9 @@ async function runSmokeTest(win) {
         Array.isArray(dlg.specials) && dlg.specials.length >= 3 &&
         dlg.topDirs >= 1 &&
         Array.isArray(dlg.testSubdirs) && dlg.testSubdirs.includes('sub') &&
-        dlg.previewCount === 10 && dlg.previewImages === 4
+        dlg.previewCount === 10 && dlg.previewImages === 4 &&
+        dlg.shallowCount === 8 && Array.isArray(dlg.shallowDirs) && dlg.shallowDirs.includes('sub') &&
+        dlg.shallowHasSubImage === false
       if (!dlgOk) {
         clearTimeout(killer)
         return fail(`打开对话框 IPC 不符预期: ${JSON.stringify(dlg)}`)
@@ -916,13 +923,40 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
     return { path: dir, parent: parent === dir ? null : parent, dirs: await listDirsLayer(dir) }
   })
 
-  // 目录图片预览：递归扫描（20000 项防爆上限），返回总数与前 limit 张
+  // 目录图片预览：默认递归扫描（20000 项防爆上限），返回总数与前 limit 张；
+  // shallow=true 时只列**本层**：count/图片均为本层（不递归），并附子文件夹条目 dirs（文件夹图标+名称用）
   const PREVIEW_SCAN_CAP = 20000
-  ipcMain.handle('dir-image-preview', async (_event, dir, limit) => {
+  ipcMain.handle('dir-image-preview', async (_event, dir, limit, shallow) => {
+    const cap = typeof limit === 'number' && limit > 0 ? Math.min(limit, 64) : 12
+    if (shallow) {
+      const images = []
+      const dirs = []
+      let count = 0
+      let entries = []
+      try {
+        if (typeof dir === 'string' && dir) entries = await fs.readdir(dir, { withFileTypes: true })
+      } catch {
+        return { count: 0, capped: false, images, dirs }
+      }
+      entries.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }))
+      for (const ent of entries) {
+        const full = path.join(dir, ent.name)
+        try {
+          if (ent.isDirectory()) {
+            dirs.push({ name: ent.name, path: full })
+          } else if (ent.isFile() && IMAGE_EXTS.has(path.extname(ent.name).toLowerCase())) {
+            count += 1
+            if (images.length < cap) images.push({ path: full, name: ent.name })
+          }
+        } catch {
+          // 跳过无权限/损坏项
+        }
+      }
+      return { count, capped: false, images, dirs }
+    }
     const images = []
     let count = 0
     let capped = false
-    const cap = typeof limit === 'number' && limit > 0 ? Math.min(limit, 64) : 12
     async function walk(d) {
       if (capped) return
       let entries

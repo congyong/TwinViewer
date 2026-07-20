@@ -1,9 +1,9 @@
 /**
  * Electron 自绘「打开文件夹」对话框（简化选择流程）：
  * 左栏快捷入口（桌面/图片/文档/下载/盘符）+ 当前层子目录列表（含 ↑ 上级），
- * 右栏所选文件夹的图片预览（递归计数 + 前 12 张缩略图）。
- * 交互：**单击选中**子文件夹（高亮 + 预览），**双击进入**；「打开此文件夹」对
- * 选中项（无选中则当前位置）直接生效，无二次确认。底栏保留系统对话框入口
+ * 右栏所选文件夹**本层**内容预览（子文件夹条目 + 本层图片缩略图，不递归；计数也按本层）。
+ * 交互：**单击选中**子文件夹（高亮 + 预览），**双击进入**；预览格子文件夹单击即进入；
+ * 「打开此文件夹」对选中项（无选中则当前位置）直接生效，无二次确认。底栏保留系统对话框入口
  * （win32 文件/文件夹均可选；选中文件 = 打开所在文件夹并定位选中）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -86,7 +86,7 @@ export function OpenFolderDialog() {
     let alive = true
     setLoadingPreview(true)
     void provider
-      .dirImagePreview?.(target, 12)
+      .dirImagePreview?.(target, 12, true)
       .then((p) => {
         if (!alive || !p) return
         setPreview(p)
@@ -105,7 +105,7 @@ export function OpenFolderDialog() {
 
   const close = () => setOpen(false)
   const openTarget = () => {
-    if (!target || !preview || preview.count === 0) return
+    if (!target || !previewReady) return
     setOpen(false)
     void openPathFocus(target)
   }
@@ -205,11 +205,22 @@ export function OpenFolderDialog() {
             )}
             {!loadingPreview && previewReady && (
               <>
-                {preview.count === 0 ? (
-                  <div className="flex flex-1 items-center justify-center text-xs text-[var(--tv-text-faint)]">该文件夹（含子文件夹）无图片</div>
+                {preview.count === 0 && (preview.dirs?.length ?? 0) === 0 ? (
+                  <div className="flex flex-1 items-center justify-center text-xs text-[var(--tv-text-faint)]">本层无图片，也无子文件夹</div>
                 ) : (
                   <>
                     <div className="grid flex-1 grid-cols-4 content-start gap-2 overflow-y-auto">
+                      {(preview.dirs ?? []).map((d) => (
+                        <button
+                          key={d.path}
+                          className="flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded bg-[var(--tv-well)] hover:bg-[var(--tv-soft)]"
+                          title={`${d.path}（点击进入）`}
+                          onClick={() => void doBrowse(d.path)}
+                        >
+                          <FolderIcon className="h-8 w-10 shrink-0" />
+                          <span className="w-full truncate px-1 text-center text-[10px] text-[var(--tv-text)]">{d.name}</span>
+                        </button>
+                      ))}
                       {preview.images.map((im) => (
                         <div key={im.path} className="aspect-square overflow-hidden rounded bg-[var(--tv-well)]" title={im.name}>
                           <img src={thumbUrl(im.path)} alt={im.name} className="h-full w-full object-cover" loading="lazy" />
@@ -217,8 +228,8 @@ export function OpenFolderDialog() {
                       ))}
                     </div>
                     <div className="pt-2 text-center text-xs text-[var(--tv-text-faint)]">
-                      共 {preview.count}
-                      {preview.capped ? '+' : ''} 张图片
+                      本层 {preview.count} 张图片
+                      {(preview.dirs?.length ?? 0) > 0 && ` · ${preview.dirs!.length} 个子文件夹`}
                     </div>
                   </>
                 )}
@@ -237,7 +248,7 @@ export function OpenFolderDialog() {
             </button>
             <button
               className="rounded bg-sky-600 px-3 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!target || !previewReady || preview.count === 0}
+              disabled={!target || !previewReady}
               onClick={openTarget}
             >
               打开此文件夹

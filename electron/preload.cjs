@@ -32,8 +32,8 @@ contextBridge.exposeInMainWorld('twinview', {
   specialDirs: () => ipcRenderer.invoke('special-dirs'),
   /** 打开文件夹对话框：列一层子目录（null = 顶层盘符/根），返回 {path,parent,dirs} */
   browseDir: (dir) => ipcRenderer.invoke('browse-dir', dir),
-  /** 目录图片预览（递归计数 + 前 limit 张），返回 {count,capped,images:[{path,name}]} */
-  dirImagePreview: (dir, limit) => ipcRenderer.invoke('dir-image-preview', dir, limit),
+  /** 目录图片预览：默认递归计数 + 前 limit 张；shallow=true 只列本层（附 dirs 子文件夹条目），返回 {count,capped,images:[{path,name}],dirs?} */
+  dirImagePreview: (dir, limit, shallow) => ipcRenderer.invoke('dir-image-preview', dir, limit, shallow),
   /** 拖放：File 对象 → 绝对路径（webUtils） */
   getPathForFile: (file) => webUtils.getPathForFile(file),
   /** 拖放粘贴：递归复制文件/目录到目标目录（重名自动副本），返回 {ok, failed} */

@@ -68,8 +68,8 @@ export interface FSProvider {
   specialDirs?(): Promise<{ name: string; path: string }[]>
   /** Electron 专用：打开对话框列一层子目录（null = 顶层） */
   browseDir?(dir: string | null): Promise<BrowseDirResult>
-  /** Electron 专用：目录图片预览（递归计数 + 前 limit 张） */
-  dirImagePreview?(dir: string, limit: number): Promise<DirImagePreview>
+  /** Electron 专用：目录图片预览（默认递归计数 + 前 limit 张；shallow=true 只列本层并附 dirs 子文件夹条目） */
+  dirImagePreview?(dir: string, limit: number, shallow?: boolean): Promise<DirImagePreview>
   /** Electron 专用：拖放 File → 绝对路径 */
   getPathForFile?(file: File): string
   /** Electron 专用：拖放递归复制（重名自动副本） */
@@ -99,6 +99,8 @@ export interface DirImagePreview {
   count: number
   capped: boolean
   images: { path: string; name: string }[]
+  /** shallow 模式返回：本层子文件夹条目（名称+路径） */
+  dirs?: { name: string; path: string }[]
 }
 
 export interface DirInfo {
@@ -141,7 +143,7 @@ interface TwinviewBridge {
   setWindowBackground?(color: string): Promise<void>
   specialDirs(): Promise<{ name: string; path: string }[]>
   browseDir(dir: string | null): Promise<BrowseDirResult>
-  dirImagePreview(dir: string, limit: number): Promise<DirImagePreview>
+  dirImagePreview(dir: string, limit: number, shallow?: boolean): Promise<DirImagePreview>
   getPathForFile(file: File): string
   copyInto(sources: string[], targetDir: string): Promise<FileOpResult>
   platform: string
@@ -370,8 +372,8 @@ class ElectronFSProvider implements FSProvider {
     return this.bridge().browseDir(dir)
   }
 
-  async dirImagePreview(dir: string, limit: number) {
-    return this.bridge().dirImagePreview(dir, limit)
+  async dirImagePreview(dir: string, limit: number, shallow?: boolean) {
+    return this.bridge().dirImagePreview(dir, limit, shallow)
   }
 
   getPathForFile(file: File): string {
