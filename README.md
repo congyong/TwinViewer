@@ -19,6 +19,15 @@
 
 ---
 
+## 一指禅 · 30 秒上手
+
+1. **对比三连**：选择文件夹 → 勾选两张图 → 点工具栏「对比选中」→ **双击**图片进该图控件全屏 → **再双击**进物理全屏 → **再双击**切换左右图源（X 键、←/→ 键同样可切）→ **Esc** 逐层回退
+2. **全屏两键**：`F` = 当前图控件内最大显示（对比 = 激活格 / 网格 = 当前格，再按退出）；`Shift+F` = 当前视图整体物理全屏
+3. **取色**：按住 `Alt` 鼠标取色，单击取样，记录在左列左下角取样列表
+4. **求助**：`?` 打开完整快捷键列表
+
+---
+
 ## 主要特性
 
 | 模块 | 能力 |
@@ -97,7 +106,7 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
 
 ## CLI 与集成
 
