@@ -2,7 +2,8 @@
  * 通用图像查看窗格：
  * - 图层渲染（wipe 裁剪 / overlay 透明度）、fit/自由缩放、拖拽平移（位移存为渲染尺寸分数）、
  *   滚轮锚点缩放、双击（全屏切换 或 适应↔100%）、R/L 旋转（transform.rotation 角度制）
- * - 重采样：邻近/自动走 <img>（imageRendering 控制），双线性/双立方走 Canvas 平滑近似
+ * - 重采样：邻近/自动走 <img>（imageRendering 控制），BIFant/双线性/双立方/Lanczos 走 Canvas
+ *   （平滑预览 + resampler.ts 软件精确重采样，停手 ~150ms 后精确重绘）
  * - 解码统一走会话缓存（decode-cache），显示层与分析层（直方图/EXIF/探针）共享同一份 bitmap
  * - **双缓冲无缝切图**：新图未就绪前保留旧帧（不清空、不卸载旧图层），就绪后原子交换；
  *   缓存命中时经 peekDecoded 同步取帧（layout effect 内当帧渲染，无 await 间隙、无黑帧）；
@@ -18,15 +19,17 @@ import type { ViewTransform } from '@/store/appStore'
 import { useAppStore } from '@/store/appStore'
 import { getDecoded, peekDecoded, pinDecoded, type DecodedImage } from '@/lib/decode-cache'
 import { probePixel, type PixelRGBA } from '@/lib/pixel-probe'
+import { isPreciseAlgo, resampleTo, type ResampleAlgo, type ResampleHandle } from '@/lib/resampler'
 import { cn } from '@/lib/utils'
 
 const MIN_ZOOM = 0.02
 const MAX_ZOOM = 64
 
 /**
- * 双线性/双立方的 Canvas 平滑绘制。
+ * 双线性/双立方/BIFant/Lanczos 的 Canvas 平滑绘制。
  * 防抖策略：**图像源（bitmap/img）变化 = 立即绘制**（切图无等待，layout effect 内同步上屏）；
  * 仅尺寸/质量变化（连续缩放）才 120ms 防抖，停手后出清图。
+ * 软件重采样：快速平滑绘制作为预览，停手 ~150ms 后用 resampler 精确重绘（可取消、LRU 缓存）。
  */
 function CanvasSmooth({
   bitmap,
@@ -34,6 +37,8 @@ function CanvasSmooth({
   rw,
   rh,
   quality,
+  algo,
+  cacheKey,
   alt,
 }: {
   bitmap: ImageBitmap | null
@@ -41,10 +46,16 @@ function CanvasSmooth({
   rw: number
   rh: number
   quality: 'low' | 'high'
+  /** 软件重采样算法（null = 仅平滑预览） */
+  algo: ResampleAlgo | null
+  /** 重采样缓存键（通常条目 id） */
+  cacheKey: string
   alt: string
 }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [img, setImg] = useState<HTMLImageElement | null>(null)
+  const preciseRef = useRef<ResampleHandle | null>(null)
+  const preciseTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (bitmap) return
@@ -62,15 +73,23 @@ function CanvasSmooth({
   const source = bitmap ?? img
   const prevSourceRef = useRef<ImageBitmap | HTMLImageElement | null>(null)
 
+  // 卸载时取消未完成的精确重采样
+  useEffect(() => {
+    return () => {
+      preciseRef.current?.cancel()
+      if (preciseTimerRef.current !== null) clearTimeout(preciseTimerRef.current)
+    }
+  }, [])
+
   useLayoutEffect(() => {
     if (!source || rw <= 0 || rh <= 0) return
     const immediate = prevSourceRef.current !== source
     prevSourceRef.current = source
+    const cw = Math.min(Math.max(1, Math.round(rw)), 4096)
+    const ch = Math.min(Math.max(1, Math.round(rh)), 4096)
     const draw = () => {
       const canvas = ref.current
       if (!canvas) return
-      const cw = Math.min(Math.max(1, Math.round(rw)), 4096)
-      const ch = Math.min(Math.max(1, Math.round(rh)), 4096)
       if (canvas.width !== cw) canvas.width = cw
       if (canvas.height !== ch) canvas.height = ch
       const ctx = canvas.getContext('2d')
@@ -82,13 +101,41 @@ function CanvasSmooth({
       const sh = bitmap ? bitmap.height : (source as HTMLImageElement).naturalHeight
       ctx.drawImage(source, 0, 0, sw, sh, 0, 0, cw, ch)
     }
+    /** 停手后精确重采样：先取消旧任务，150ms 防抖 */
+    const schedulePrecise = () => {
+      preciseRef.current?.cancel()
+      preciseRef.current = null
+      if (preciseTimerRef.current !== null) {
+        clearTimeout(preciseTimerRef.current)
+        preciseTimerRef.current = null
+      }
+      if (!algo || !bitmap) return
+      preciseTimerRef.current = window.setTimeout(() => {
+        preciseTimerRef.current = null
+        preciseRef.current = resampleTo(bitmap, `${cacheKey}|${algo}|${cw}x${ch}`, cw, ch, algo, (bmp) => {
+          preciseRef.current = null
+          if (!bmp) return
+          const canvas = ref.current
+          if (!canvas) return
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return
+          ctx.imageSmoothingEnabled = false
+          ctx.clearRect(0, 0, canvas.width, canvas.height)
+          ctx.drawImage(bmp, 0, 0)
+        })
+      }, 150)
+    }
     if (immediate) {
       draw() // 切图/新源：当帧同步绘制（pre-paint），无黑帧
+      schedulePrecise()
       return
     }
-    const timer = setTimeout(draw, 120) // 连续缩放：防抖重绘
+    const timer = setTimeout(() => {
+      draw()
+      schedulePrecise()
+    }, 120) // 连续缩放：防抖重绘
     return () => clearTimeout(timer)
-  }, [source, bitmap, rw, rh, quality])
+  }, [source, bitmap, rw, rh, quality, algo, cacheKey])
 
   return <canvas ref={ref} className="h-full w-full" aria-label={alt} />
 }
@@ -478,14 +525,14 @@ export function ViewerPane({
     if (wipeDragRef.current === e.pointerId) wipeDragRef.current = null
   }
 
-  const useCanvas = resample === 'bilinear' || resample === 'bicubic'
+  const useCanvas = isPreciseAlgo(resample)
   const canvasQuality = resample === 'bilinear' ? ('low' as const) : ('high' as const)
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        'relative select-none overflow-hidden bg-[#1b1b1b]',
+        'relative select-none overflow-hidden bg-[var(--tv-well)]',
         active && 'ring-2 ring-inset ring-sky-500',
         altDown ? 'cursor-crosshair' : dragging ? 'cursor-grabbing' : 'cursor-grab',
         className,
@@ -525,6 +572,8 @@ export function ViewerPane({
                 rw={meta ? g.rw : 0}
                 rh={meta ? g.rh : 0}
                 quality={canvasQuality}
+                algo={isPreciseAlgo(resample) ? resample : null}
+                cacheKey={layer.entry.id}
                 alt={layer.entry.name}
               />
             ) : (

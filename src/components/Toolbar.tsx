@@ -36,9 +36,11 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 const RESAMPLE_ITEMS: { value: ResampleMode; label: string }[] = [
   { value: 'auto', label: '缩放算法：自动' },
-  { value: 'nearest', label: '缩放算法：邻近' },
-  { value: 'bilinear', label: '缩放算法：双线性*' },
-  { value: 'bicubic', label: '缩放算法：双立方*' },
+  { value: 'nearest', label: '缩放算法：邻近（最快）' },
+  { value: 'bifant', label: '缩放算法：BIFant*（缩小最净）' },
+  { value: 'bilinear', label: '缩放算法：双线性*（均衡）' },
+  { value: 'bicubic', label: '缩放算法：双立方*（锐利）' },
+  { value: 'lanczos', label: '缩放算法：Lanczos-3*（最佳）' },
 ]
 
 const GRID_LAYOUTS: { value: GridLayout; label: string }[] = [
