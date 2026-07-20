@@ -5,6 +5,13 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.1] - 2026-07-20
+
+### 新增
+
+- 单图 / 对比 / 网格视图中点击文件夹树节点即切回浏览模式并显示该目录网格（原仅切换视野不离开当前视图）；浏览中点击行为不变，Esc 逐层回退不回归
+- README 顶部新增「一指禅 · 30 秒上手」区块（对比双击三连、F / Shift+F、Alt 取色、? 快捷键列表）
+
 ## [0.1.0] - 2026-07-20
 
 首个正式发布版本。跨平台（Windows / macOS）桌面图片对比浏览器，同一套 React 代码同时可作为网页版运行。
@@ -73,4 +80,5 @@
 - macOS DMG 改 ad-hoc 签名，修复 arm64「已损坏，无法打开」（首次打开仍需「右键 → 打开」）
 - 对比模式 X 交换失效修复；仅勾选导航允许槽位重复（移除误报提示）
 
+[0.1.1]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.1
 [0.1.0]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.0
