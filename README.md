@@ -7,10 +7,15 @@
 - 界面语言：中文 ｜ 主题：FastStone 风格深色
 - 技术栈：React 19 + TypeScript + Vite + Tailwind + shadcn/ui + zustand；Electron 桌面壳（CommonJS 主进程 + contextBridge preload）
 
-**📦 Nightly 下载（每次 main push 自动构建，滚动覆盖）**：<https://github.com/congyong/TwinViewer/releases/tag/nightly>
+**📦 正式版 v0.1.0（推荐）**：<https://github.com/congyong/TwinViewer/releases/latest>
+
+- Windows：`TwinView-Setup-0.1.0-windows-x64.exe`（NSIS 安装包，可选安装目录；未签名，SmartScreen 首次提示选「仍要运行」）
+- macOS：`TwinView-0.1.0-macos-arm64.dmg`（Apple Silicon，**ad-hoc 签名**（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开）
+
+**🌙 Nightly 下载（每次 main push 自动构建，滚动覆盖）**：<https://github.com/congyong/TwinViewer/releases/tag/nightly>
 
 - Windows：`TwinView-Setup-windows-x64.exe`（NSIS 安装包，可选安装目录）
-- macOS：`TwinView-macos-arm64.dmg`（Apple Silicon，**ad-hoc 签名**（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开）
+- macOS：`TwinView-macos-arm64.dmg`（Apple Silicon，签名与打开方式同正式版）
 
 ---
 

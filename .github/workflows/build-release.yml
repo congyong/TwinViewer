@@ -1,17 +1,21 @@
-# TwinView CI：push 到 main → 验证 → 双平台打包 → 滚动 nightly 预发布
+# TwinView CI：push 到 main → 验证 → 双平台打包 → 滚动 nightly 预发布；push v* tag → 正式发布
 # - verify：类型检查 + 网页版构建（失败则阻断发布）
 # - release：windows-latest（NSIS x64）/ macos-latest（arm64 DMG，macos-latest 即 Apple Silicon runner；
 #   无开发者证书 → ad-hoc 签名：mac.identity 不设 + CSC_IDENTITY_AUTO_DISCOVERY=false，
 #   electron-builder 找不到证书时自动回退 ad-hoc（codesign -s -）；arm64 完全无签名会被 Gatekeeper 判「已损坏」，
 #   ad-hoc 后首次打开仍需「右键 → 打开」；注意 mac.identity=null 是**完全跳过签名**，切勿回退该配置）
-# - 发布：softprops/action-gh-release 固定 tag `nightly` 滚动覆盖同名资产，不刷屏新建 release；
-#   资产用固定名（覆盖可靠），commit SHA 写入 release 正文便于追溯
+# - nightly 发布（main push / 手动触发）：softprops/action-gh-release 固定 tag `nightly` 滚动覆盖同名资产，
+#   不刷屏新建 release；资产用固定名（覆盖可靠），commit SHA 写入 release 正文便于追溯
+# - 正式发布（v* tag push）：同名流水线打包后创建**正式 Release**（prerelease: false），
+#   资产名带版本号（TwinView-Setup-<ver>-windows-x64.exe / TwinView-<ver>-macos-arm64.dmg），
+#   正文由 CHANGELOG.md 对应版本段落自动生成（提取失败时回退要点文案）+ macOS ad-hoc 说明
 
 name: build-release
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -34,7 +38,7 @@ jobs:
         run: npm run build
 
   release:
-    name: Package & publish nightly (${{ matrix.os }})
+    name: Package & publish (${{ matrix.os }})
     needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
@@ -62,19 +66,29 @@ jobs:
           # （不要用 CSC_LINK='' + mac.identity=null：那是完全跳过签名，arm64 会被判「已损坏」）
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: Collect artifacts (fixed names for rolling overwrite)
+      - name: Collect artifacts (tag = versioned names / main = fixed names for rolling overwrite)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist-release
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp release/*.exe "dist-release/TwinView-Setup-windows-x64.exe"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              cp release/*.exe "dist-release/TwinView-Setup-${VER}-windows-x64.exe"
+            else
+              cp release/*.dmg "dist-release/TwinView-${VER}-macos-arm64.dmg"
+            fi
           else
-            cp release/*.dmg "dist-release/TwinView-macos-arm64.dmg"
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              cp release/*.exe "dist-release/TwinView-Setup-windows-x64.exe"
+            else
+              cp release/*.dmg "dist-release/TwinView-macos-arm64.dmg"
+            fi
           fi
           ls -lh dist-release
 
-      - name: Upload to rolling nightly prerelease
+      - name: Upload to rolling nightly prerelease (main / manual only)
+        if: github.ref_type == 'branch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
@@ -86,4 +100,44 @@ jobs:
             - Commit: `${{ github.sha }}`
             - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             - macOS 构建为 ad-hoc 签名（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开
+          files: dist-release/*
+
+      - name: Build release body from CHANGELOG (tag only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          # 提取 CHANGELOG.md 中「## [<VER>]」到下一个「## [」之间的段落（index() 写法兼容各 awk；
+          # 过滤末尾的 [x.y.z]: 链接定义行）
+          awk -v ver="$VER" '
+            index($0, "## [" ver "]") == 1 { flag=1; next }
+            index($0, "## [") == 1 && flag { flag=0 }
+            flag && $0 !~ /^\[[0-9.]+\]: /
+          ' CHANGELOG.md > release-body.md
+          if [ ! -s release-body.md ]; then
+            echo "CHANGELOG 段落提取失败，使用回退文案"
+            printf 'TwinView %s 正式发布。主要变更见 [CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md)。\n' \
+              "$VER" "${{ github.repository }}" > release-body.md
+          fi
+          cat >> release-body.md <<'EOF'
+
+          ---
+
+          **安装说明**
+
+          - Windows：NSIS 安装包（未签名），SmartScreen 首次运行可能提示「Windows 已保护你的电脑」→「仍要运行」
+          - macOS：Apple Silicon（arm64）DMG，**ad-hoc 签名**（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开
+          EOF
+          echo '--- release-body.md ---'
+          cat release-body.md
+
+      - name: Publish formal GitHub Release (tag only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: TwinView ${{ github.ref_name }}
+          prerelease: false
+          body_path: release-body.md
           files: dist-release/*

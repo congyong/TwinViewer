@@ -211,11 +211,12 @@ npm run electron:build  # 本地打包（release/ 下 NSIS / DMG）
 ```
 
 **CI（`.github/workflows/build-release.yml`）**：
-- 触发：`push` 到 `main` + `workflow_dispatch`；
+- 触发：`push` 到 `main`、`push` 打 `v*` tag、`workflow_dispatch`（同一 workflow 两种发布路径）；
 - `verify`（ubuntu-latest，Node 20）：`npm ci` → `npx tsc -p tsconfig.app.json --noEmit` → `npm run build`，失败阻断发布；
-- `release`（needs: verify，矩阵 `windows-latest` / `macos-latest`）：构建后用 `npx electron-builder --win --x64 --publish never`（NSIS）/ `--mac --arm64 --publish never`（DMG，`mac.identity=null` 免签名）；
-- 发布：`softprops/action-gh-release@v2` 固定 `tag_name: nightly` 滚动预发布，资产固定名（`TwinView-Setup-windows-x64.exe` / `TwinView-macos-arm64.dmg`）→ 每次 push **同名覆盖**不刷屏；commit SHA 写入 release 正文追溯。
-- 本地无 `gh` CLI 时，到仓库 Actions 页确认运行；badge 见 README。
+- `release`（needs: verify，矩阵 `windows-latest` / `macos-latest`）：构建后用 `npx electron-builder --win --x64 --publish never`（NSIS）/ `--mac --arm64 --publish never`（DMG，ad-hoc 签名）；
+- **nightly 路径**（`github.ref_type == 'branch'`）：`softprops/action-gh-release@v2` 固定 `tag_name: nightly` 滚动预发布，资产固定名（`TwinView-Setup-windows-x64.exe` / `TwinView-macos-arm64.dmg`）→ 每次 push **同名覆盖**不刷屏；commit SHA 写入 release 正文追溯；
+- **tag 正式发布路径**（`refs/tags/v*`）：资产名带版本号（`TwinView-Setup-<ver>-windows-x64.exe` / `TwinView-<ver>-macos-arm64.dmg`，`<ver>` = tag 去 `v` 前缀），`prerelease: false`，release 名 `TwinView <tag>`；正文由 awk 从 `CHANGELOG.md` 提取 `## [<ver>]` 段落生成（提取为空回退要点文案）+ 追加 Windows SmartScreen / macOS ad-hoc 安装说明。发版步骤：改 `package.json` version + 写 CHANGELOG → `chore(release): vX.Y.Z` commit → `git tag -a vX.Y.Z` → `git push origin main --follow-tags`；
+- 本地无 `gh` CLI 时，用公开 REST API 盯 CI：`GET /repos/congyong/TwinViewer/actions/runs?event=push&branch=vX.Y.Z` 轮询三 job（verify + 2×release），全绿后 `GET /repos/congyong/TwinViewer/releases/tags/vX.Y.Z` 确认资产；badge 见 README。
 
 ---
 
