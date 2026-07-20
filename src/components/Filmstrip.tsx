@@ -49,10 +49,10 @@ const StripItem = memo(function StripItem({
     <div
       ref={ref}
       className={cn(
-        'relative h-[74px] w-[74px] shrink-0 cursor-pointer overflow-hidden rounded border bg-[#161616]',
+        'relative h-[74px] w-[74px] shrink-0 cursor-pointer overflow-hidden rounded border bg-[var(--tv-well)]',
         mark === 'A' && 'border-sky-500 ring-1 ring-sky-500',
         mark === 'B' && 'border-orange-500 ring-1 ring-orange-500',
-        !mark && 'border-transparent hover:border-neutral-500',
+        !mark && 'border-transparent hover:border-[var(--tv-border2)]',
         isCurrent && !mark && 'border-amber-500',
       )}
       title={entry.name}
@@ -161,18 +161,18 @@ export function Filmstrip() {
   }
 
   return (
-    <div className="shrink-0 border-t border-border bg-[#242424]">
-      <div className="flex items-center gap-3 px-3 pt-1.5 text-xs text-neutral-400">
+    <div className="shrink-0 border-t border-border bg-[var(--tv-panel)]">
+      <div className="flex items-center gap-3 px-3 pt-1.5 text-xs text-[var(--tv-text-dim)]">
         <span>导航范围：</span>
-        <div className="inline-flex overflow-hidden rounded border border-neutral-600">
+        <div className="inline-flex overflow-hidden rounded border border-[var(--tv-border2)]">
           <button
-            className={cn('px-2.5 py-0.5', navScope === 'all' ? 'bg-sky-600 text-white' : 'bg-transparent hover:bg-white/10')}
+            className={cn('px-2.5 py-0.5', navScope === 'all' ? 'bg-sky-600 text-white' : 'bg-transparent hover:bg-[var(--tv-hover)]')}
             onClick={() => setNavScope('all')}
           >
             全部
           </button>
           <button
-            className={cn('px-2.5 py-0.5', navScope === 'checked' ? 'bg-sky-600 text-white' : 'bg-transparent hover:bg-white/10')}
+            className={cn('px-2.5 py-0.5', navScope === 'checked' ? 'bg-sky-600 text-white' : 'bg-transparent hover:bg-[var(--tv-hover)]')}
             onClick={() => setNavScope('checked')}
             title="胶片条与 ←/→ 导航仅在勾选项中循环"
           >
@@ -183,19 +183,19 @@ export function Filmstrip() {
           {navList.length} 项{navScope === 'checked' ? `（已勾选 ${checked.length}）` : ''}
         </span>
         {viewMode === 'compare' && (
-          <span className="text-neutral-500">
+          <span className="text-[var(--tv-text-faint)]">
             点击切换 {activeSlot} 槽图片 · Tab 切换激活侧 · A/B 键选定激活侧
           </span>
         )}
         {viewMode === 'grid' && (
-          <span className="text-neutral-500">
+          <span className="text-[var(--tv-text-faint)]">
             点击替换第 {gridActiveIdx + 1} 格图片 · Tab / 数字键切换激活格 · N 下一组
           </span>
         )}
       </div>
       <div className="flex gap-1.5 overflow-x-auto p-2">
         {navList.length === 0 && (
-          <div className="py-4 text-xs text-neutral-500">
+          <div className="py-4 text-xs text-[var(--tv-text-faint)]">
             {navScope === 'checked' ? '没有勾选项 — 在网格或胶片条中勾选图片' : '无图片'}
           </div>
         )}

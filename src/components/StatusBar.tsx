@@ -26,7 +26,7 @@ export function StatusBar({ entry, meta, zoom, index, total, extra }: StatusBarP
   }, [entry, meta, zoom, index, total, extra])
 
   return (
-    <div className="shrink-0 truncate border-t border-border bg-[#262626] px-3 py-1 text-xs text-neutral-400">
+    <div className="shrink-0 truncate border-t border-border bg-[var(--tv-panel2)] px-3 py-1 text-xs text-[var(--tv-text-dim)]">
       {text}
     </div>
   )

@@ -1,9 +1,30 @@
 <!doctype html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TwinView 图片对比浏览器</title>
+    <script>
+      // 首帧防闪：React 接管前按持久化主题上色（与 src/lib/settings.ts 的 key/结构一致）
+      ;(function () {
+        var mode = 'dark'
+        try {
+          var raw = localStorage.getItem('twinview.settings')
+          if (raw) {
+            var v = (JSON.parse(raw).values || {}).theme
+            if (v === 'dark' || v === 'light' || v === 'system') mode = v
+          }
+        } catch (e) {}
+        var dark =
+          mode === 'system'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : mode !== 'light'
+        var root = document.documentElement
+        root.classList.toggle('dark', dark)
+        root.style.colorScheme = dark ? 'dark' : 'light'
+        root.style.backgroundColor = dark ? '#1e1e1e' : '#ececec'
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

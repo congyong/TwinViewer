@@ -161,7 +161,7 @@ export function InfoOverlay({ entry, meta, zoom, index, total, offsetTop }: Info
   return (
     <div
       className={cn(
-        'absolute left-2 z-20 w-[236px] rounded bg-black/70 p-2 text-[10px] leading-4 text-neutral-300 shadow-lg backdrop-blur-sm',
+        'absolute left-2 z-20 w-[236px] rounded bg-black/70 p-2 text-[10px] leading-4 text-neutral-200 shadow-lg backdrop-blur-sm',
         offsetTop ? 'top-9' : 'top-2',
       )}
       onPointerDown={(e) => e.stopPropagation()}
@@ -180,7 +180,7 @@ export function InfoOverlay({ entry, meta, zoom, index, total, offsetTop }: Info
       )}
 
       {histoVisible && (
-        <div className={cn(infoVisible && 'mt-1 border-t border-white/10 pt-1')}>
+        <div className={cn(infoVisible && 'mt-1 border-t border-[var(--tv-line)] pt-1')}>
           {histo ? (
             <canvas ref={canvasRef} width={220} height={100} className="rounded bg-black/50" />
           ) : histo === null ? (
@@ -192,7 +192,7 @@ export function InfoOverlay({ entry, meta, zoom, index, total, offsetTop }: Info
       )}
 
       {infoVisible && (
-        <div className="mt-1 border-t border-white/10 pt-1">
+        <div className="mt-1 border-t border-[var(--tv-line)] pt-1">
           <ExifBlock exif={exif} />
         </div>
       )}

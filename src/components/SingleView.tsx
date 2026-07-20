@@ -49,7 +49,7 @@ export function SingleView() {
 
   if (!entry) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+      <div className="flex h-full items-center justify-center text-sm text-[var(--tv-text-faint)]">
         没有可显示的图片
       </div>
     )

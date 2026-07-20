@@ -30,7 +30,7 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
     <div>
       <div
         className={cn(
-          'flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-xs hover:bg-white/10',
+          'flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-xs hover:bg-[var(--tv-hover)]',
           isCurrent && 'bg-sky-600/30 text-sky-200',
         )}
         style={{ paddingLeft: depth * 12 + 2 }}
@@ -38,7 +38,7 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
         title={relPath === '' ? '根目录' : relPath}
       >
         <button
-          className={cn('shrink-0 text-neutral-400', !hasChildren && 'invisible')}
+          className={cn('shrink-0 text-[var(--tv-text-dim)]', !hasChildren && 'invisible')}
           onClick={(e) => {
             e.stopPropagation()
             toggleTreeNode(relPath)
@@ -116,26 +116,26 @@ export function Sidebar() {
   const rootDirectCount = dir ? images.filter((e) => relDirOf(e, dir) === '').length : 0
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-[#242424] p-3 text-sm">
+    <aside className="flex w-64 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-[var(--tv-panel)] p-3 text-sm">
       <div>
-        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-neutral-400">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-[var(--tv-text-dim)]">
           <FolderOpen className="h-3.5 w-3.5" /> 文件夹树
         </div>
         {dir ? (
           <>
-            <div className="mb-1 break-all text-[11px] text-neutral-500" title={dir.name}>
+            <div className="mb-1 break-all text-[11px] text-[var(--tv-text-faint)]" title={dir.name}>
               {dir.name}
             </div>
-            <div className="max-h-72 overflow-y-auto rounded bg-black/20 py-1">
+            <div className="max-h-72 overflow-y-auto rounded bg-[var(--tv-soft)] py-1">
               {providerKind === 'browser' && (
-                <div className="px-2 py-1 text-[10px] leading-snug text-neutral-500">
+                <div className="px-2 py-1 text-[10px] leading-snug text-[var(--tv-text-faint)]">
                   浏览器模式无法访问上级目录
                 </div>
               )}
               {ancestors.map((a, i) => (
                 <TreeNode key={a.relPath} {...a} depth={Math.min(i, 3)} />
               ))}
-              {ancestors.length > 0 && <div className="mx-2 my-0.5 border-t border-white/10" />}
+              {ancestors.length > 0 && <div className="mx-2 my-0.5 border-t border-[var(--tv-line)]" />}
               <TreeNode
                 name={rootName}
                 relPath=""
@@ -144,7 +144,7 @@ export function Sidebar() {
                 hasChildren
               />
             </div>
-            <div className="mt-1 space-y-0.5 text-xs text-neutral-400">
+            <div className="mt-1 space-y-0.5 text-xs text-[var(--tv-text-dim)]">
               <div>图片总数：{images.length}</div>
               <div>当前显示：{visibleCount}</div>
               <div>已勾选：{checked.length}</div>
@@ -167,18 +167,18 @@ export function Sidebar() {
             )}
           </>
         ) : (
-          <div className="text-xs text-neutral-500">尚未打开文件夹</div>
+          <div className="text-xs text-[var(--tv-text-faint)]">尚未打开文件夹</div>
         )}
       </div>
 
       <Separator />
 
       <div className="min-h-0 flex-1">
-        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-neutral-400">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-[var(--tv-text-dim)]">
           <Star className="h-3.5 w-3.5" /> 收藏
         </div>
         {favorites.length === 0 ? (
-          <div className="text-xs text-neutral-500">
+          <div className="text-xs text-[var(--tv-text-faint)]">
             {providerKind === 'electron'
               ? '暂无收藏。打开文件夹后可收藏。'
               : '收藏夹仅在桌面（Electron）模式下可用。'}
@@ -188,14 +188,14 @@ export function Sidebar() {
             {favorites.map((f) => (
               <li key={f.path} className="group flex items-center gap-1">
                 <button
-                  className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs text-neutral-300 hover:bg-white/10"
+                  className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs text-[var(--tv-text)] hover:bg-[var(--tv-hover)]"
                   title={f.path}
                   onClick={() => void openPath(f.path)}
                 >
                   {f.path}
                 </button>
                 <button
-                  className="hidden shrink-0 text-neutral-500 hover:text-red-400 group-hover:block"
+                  className="hidden shrink-0 text-[var(--tv-text-faint)] hover:text-red-400 group-hover:block"
                   title="移除收藏"
                   onClick={() => removeFavorite(f.path)}
                 >
@@ -212,7 +212,7 @@ export function Sidebar() {
       {/* ALT 颜色取样记录（最多 10 条，可折叠） */}
       <div>
         <button
-          className="mb-1 flex w-full items-center gap-1.5 text-left text-xs font-semibold text-neutral-400 hover:text-neutral-200"
+          className="mb-1 flex w-full items-center gap-1.5 text-left text-xs font-semibold text-[var(--tv-text-dim)] hover:text-[var(--tv-text)]"
           onClick={() => setSamplesOpen((v) => !v)}
         >
           {samplesOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -220,22 +220,22 @@ export function Sidebar() {
         </button>
         {samplesOpen &&
           (samples.length === 0 ? (
-            <div className="text-xs text-neutral-500">按住 ALT 指向像素查看颜色，ALT+单击记录</div>
+            <div className="text-xs text-[var(--tv-text-faint)]">按住 ALT 指向像素查看颜色，ALT+单击记录</div>
           ) : (
             <>
               <ul className="space-y-0.5">
                 {samples.map((smp) => (
-                  <li key={smp.seq} className="flex items-center gap-1.5 text-[11px] text-neutral-300">
+                  <li key={smp.seq} className="flex items-center gap-1.5 text-[11px] text-[var(--tv-text)]">
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-sm border border-white/30"
                       style={{ backgroundColor: `rgb(${smp.r},${smp.g},${smp.b})` }}
                     />
-                    <span className="shrink-0 text-neutral-500">#{smp.seq}</span>
+                    <span className="shrink-0 text-[var(--tv-text-faint)]">#{smp.seq}</span>
                     <span className="shrink-0 text-sky-400">{smp.slot}</span>
                     <span className="min-w-0 truncate" title={smp.name}>
                       {smp.name}
                     </span>
-                    <span className="shrink-0 text-neutral-500">
+                    <span className="shrink-0 text-[var(--tv-text-faint)]">
                       ({smp.x},{smp.y}) {smp.r},{smp.g},{smp.b}
                     </span>
                   </li>

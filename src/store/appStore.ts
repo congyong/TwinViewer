@@ -219,6 +219,7 @@ export interface AppState {
   helpOpen: boolean
   favorites: FavoriteItem[]
   samples: SampleRecord[]
+  theme: ThemeMode
   singleTransform: ViewTransform
   sharedTransform: ViewTransform
   transformA: ViewTransform
@@ -279,6 +280,7 @@ export interface AppState {
   toggleSidebar: () => void
   toggleFilmstrip: () => void
   toggleHelp: () => void
+  setTheme: (m: ThemeMode) => void
   addFavorite: () => void
   removeFavorite: (path: string) => void
   setSingleTransform: (t: ViewTransform) => void
@@ -687,36 +689,46 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   setCompareLayout: (l) => {
-    savePref(LAYOUT_KEY, l)
+    updateSettings({ compareLayout: l })
     set({ compareLayout: l })
   },
 
   cycleCompareLayout: () =>
     set((s) => {
       const next: CompareLayout = s.compareLayout === 'wipe' ? 'side' : s.compareLayout === 'side' ? 'overlay' : 'wipe'
-      savePref(LAYOUT_KEY, next)
+      updateSettings({ compareLayout: next })
       return { compareLayout: next }
     }),
 
-  setSync: (v) => set({ sync: v }),
+  setSync: (v) => {
+    updateSettings({ sync: v })
+    set({ sync: v })
+  },
 
   setSplitRatio: (v) => {
     const r = clamp(v, 0.15, 0.85)
-    savePref(SPLIT_KEY, r)
+    updateSettings({ splitRatio: r })
     set({ splitRatio: r })
   },
 
   setWipeRatio: (v) => {
     const r = clamp(v, 0.02, 0.98)
-    savePref(WIPE_KEY, r)
+    updateSettings({ wipeRatio: r })
     set({ wipeRatio: r })
   },
 
-  setOverlayOpacity: (v) => set({ overlayOpacity: clamp(v, 0, 1) }),
+  setOverlayOpacity: (v) => {
+    const r = clamp(v, 0, 1)
+    updateSettings({ overlayOpacity: r })
+    set({ overlayOpacity: r })
+  },
   toggleOverlaySwapped: () => set((s) => ({ overlaySwapped: !s.overlaySwapped })),
 
   setGridLayout: (v) => set({ gridLayout: v }),
-  setGridSync: (v) => set({ gridSync: v }),
+  setGridSync: (v) => {
+    updateSettings({ gridSync: v })
+    set({ gridSync: v })
+  },
   setGridActiveIdx: (i) => set({ gridActiveIdx: i }),
 
   setGridCellImage: (idx, id) => {

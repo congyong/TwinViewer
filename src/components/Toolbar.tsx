@@ -81,7 +81,10 @@ export function Toolbar() {
   const nextPair = useAppStore((s) => s.nextPair)
   const checked = useAppStore((s) => s.checked)
   const startCompareFromChecked = useAppStore((s) => s.startCompareFromChecked)
+  const checkAll = useAppStore((s) => s.checkAll)
   const clearChecked = useAppStore((s) => s.clearChecked)
+  const theme = useAppStore((s) => s.theme)
+  const setTheme = useAppStore((s) => s.setTheme)
   const openDirectory = useAppStore((s) => s.openDirectory)
   const resample = useAppStore((s) => s.resample)
   const setResample = useAppStore((s) => s.setResample)
@@ -111,25 +114,25 @@ export function Toolbar() {
   )
 
   return (
-    <div className="flex select-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-[#242424] px-3 py-2">
+    <div className="flex select-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-[var(--tv-panel)] px-3 py-2">
       <div className="flex items-center gap-1.5 text-sm font-semibold text-sky-400">
         <Aperture className="h-4 w-4" /> TwinView
       </div>
       <Button size="sm" variant="secondary" className="h-7 gap-1" onClick={() => void openDirectory()}>
         <FolderOpen className="h-3.5 w-3.5" /> 打开文件夹
       </Button>
-      <span className="max-w-56 truncate text-xs text-neutral-500" title={dir?.name}>
+      <span className="max-w-56 truncate text-xs text-[var(--tv-text-faint)]" title={dir?.name}>
         {dir ? dir.name : '未打开文件夹'}
         {providerKind === 'browser' && dir ? ' (浏览器)' : ''}
         {images.length > 0 && ` · ${images.length} 张`}
       </span>
-      <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-300">
+      <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--tv-text)]">
         <Switch checked={recursive} onCheckedChange={setRecursive} className="scale-90" /> 含子文件夹
       </label>
 
-      <div className="h-4 w-px bg-neutral-700" />
+      <div className="h-4 w-px bg-[var(--tv-hover)]" />
 
-      <ListFilter className="h-3.5 w-3.5 text-neutral-500" />
+      <ListFilter className="h-3.5 w-3.5 text-[var(--tv-text-faint)]" />
       <Select value={formatFilter} onValueChange={setFormatFilter}>
         <SelectTrigger className="h-7 w-24 text-xs" title="格式过滤">
           <SelectValue />
@@ -189,7 +192,7 @@ export function Toolbar() {
         </ToggleGroup>
       )}
 
-      <div className="h-4 w-px bg-neutral-700" />
+      <div className="h-4 w-px bg-[var(--tv-hover)]" />
 
       {/* 视图模式：A/B 对比不设专门入口，由勾选 ≥2 张后「对比选中」或 A/B 键进入 */}
       <ToggleGroup
@@ -228,7 +231,7 @@ export function Toolbar() {
               <Layers className="h-3.5 w-3.5" /> 叠化
             </ToggleGroupItem>
           </ToggleGroup>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-300" title="同步：两侧共享缩放平移（并排模式）">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--tv-text)]" title="同步：两侧共享缩放平移（并排模式）">
             <Switch checked={sync} onCheckedChange={setSync} className="scale-90" /> 同步
           </label>
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" title="交换 A/B (X)" onClick={swapSlots}>
@@ -268,7 +271,7 @@ export function Toolbar() {
               ))}
             </SelectContent>
           </Select>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-300" title="同步：所有格子共享缩放平移；独立：每格各自调整">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--tv-text)]" title="同步：所有格子共享缩放平移；独立：每格各自调整">
             <Switch checked={gridSync} onCheckedChange={setGridSync} className="scale-90" />
             {gridSync ? '同步' : '独立'}
           </label>

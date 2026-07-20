@@ -35,23 +35,23 @@ export function HelpOverlay() {
       onClick={toggle}
     >
       <div
-        className="max-h-[80vh] w-[560px] overflow-y-auto rounded-lg border border-border bg-[#2a2a2a] p-5 shadow-2xl"
+        className="max-h-[80vh] w-[560px] overflow-y-auto rounded-lg border border-border bg-[var(--tv-overlay)] p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-3 text-base font-semibold text-neutral-100">快捷键</h2>
+        <h2 className="mb-3 text-base font-semibold text-[var(--tv-text)]">快捷键</h2>
         <table className="w-full text-sm">
           <tbody>
             {SHORTCUTS.map((s) => (
-              <tr key={s.keys} className="border-b border-white/5 last:border-0">
+              <tr key={s.keys} className="border-b border-[var(--tv-line)] last:border-0">
                 <td className="py-1.5 pr-3 whitespace-nowrap">
                   <kbd className="rounded bg-black/50 px-1.5 py-0.5 text-xs text-sky-300">{s.keys}</kbd>
                 </td>
-                <td className="py-1.5 text-neutral-300">{s.desc}</td>
+                <td className="py-1.5 text-[var(--tv-text)]">{s.desc}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="mt-3 text-xs text-neutral-500">
+        <p className="mt-3 text-xs text-[var(--tv-text-faint)]">
           多图网格对比：浏览模式勾选 ≥ 3 张后点「对比选中」（勾选 2 张为 A/B 对比）。点击任意处或按 Esc / ? 关闭
         </p>
       </div>

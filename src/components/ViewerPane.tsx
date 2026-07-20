@@ -541,7 +541,7 @@ export function ViewerPane({
       })}
       {/* 黑背景/加载提示仅在真正无图时出现（双缓冲期间旧帧始终上屏） */}
       {!primaryMeta && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">加载中…</div>
+        <div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--tv-text-faint)]">加载中…</div>
       )}
       {label && (
         <div
@@ -562,7 +562,7 @@ export function ViewerPane({
         <div className="absolute inset-y-0 z-10" style={{ left: wipeX }}>
           <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white/85 shadow-[0_0_4px_rgba(0,0,0,0.9)]" />
           <div
-            className="absolute top-1/2 flex h-12 w-5 -translate-x-1/2 -translate-y-1/2 cursor-col-resize items-center justify-center rounded bg-white/90 text-[10px] font-bold tracking-tighter text-neutral-700 shadow-md hover:bg-white"
+            className="absolute top-1/2 flex h-12 w-5 -translate-x-1/2 -translate-y-1/2 cursor-col-resize items-center justify-center rounded border border-black/30 bg-white/90 text-[10px] font-bold tracking-tighter text-neutral-700 shadow-md hover:bg-white"
             title="左右拖动对比线"
             onPointerDown={onWipeDown}
             onPointerMove={onWipeMove}

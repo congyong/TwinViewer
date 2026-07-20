@@ -74,3 +74,47 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer base {
+  :root {
+    /* TwinView 语义变量（亮色主题为默认） */
+    --tv-bg: #ececec;
+    --tv-panel: #f6f6f6;
+    --tv-panel2: #efefef;
+    --tv-card: #ffffff;
+    --tv-well: #e4e4e4;
+    --tv-overlay: #ffffff;
+    --tv-input: #ffffff;
+    --tv-text: #262626;
+    --tv-text-dim: #575757;
+    --tv-text-faint: #8c8c8c;
+    --tv-soft: rgba(0, 0, 0, 0.05);
+    --tv-hover: rgba(0, 0, 0, 0.08);
+    --tv-active: rgba(0, 0, 0, 0.15);
+    --tv-line: rgba(0, 0, 0, 0.1);
+    --tv-border2: #d0d0d0;
+    --tv-current: rgba(2, 132, 199, 0.18);
+    --tv-badge: rgba(255, 255, 255, 0.75);
+  }
+
+  .dark {
+    /* FastStone 风格深色（与历史硬编码值一致） */
+    --tv-bg: #1e1e1e;
+    --tv-panel: #242424;
+    --tv-panel2: #262626;
+    --tv-card: #1f1f1f;
+    --tv-well: #161616;
+    --tv-overlay: #2b2b2b;
+    --tv-input: #1c1c1c;
+    --tv-text: #e5e5e5;
+    --tv-text-dim: #a3a3a3;
+    --tv-text-faint: #737373;
+    --tv-soft: rgba(255, 255, 255, 0.05);
+    --tv-hover: rgba(255, 255, 255, 0.1);
+    --tv-active: rgba(255, 255, 255, 0.2);
+    --tv-line: rgba(255, 255, 255, 0.1);
+    --tv-border2: #525252;
+    --tv-current: rgba(2, 132, 199, 0.3);
+    --tv-badge: rgba(0, 0, 0, 0.4);
+  }
+}

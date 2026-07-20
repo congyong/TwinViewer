@@ -102,7 +102,7 @@ export function CompareGrid() {
 
   if (entries.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+      <div className="flex h-full items-center justify-center text-sm text-[var(--tv-text-faint)]">
         没有选中的图片 — 请在浏览模式勾选至少 3 张后点击「对比选中」
       </div>
     )
@@ -159,7 +159,7 @@ export function CompareGrid() {
     <div className="flex h-full min-h-0 flex-col">
       <div
         ref={containerRef}
-        className="grid min-h-0 flex-1 gap-1 bg-[#161616] p-1"
+        className="grid min-h-0 flex-1 gap-1 bg-[var(--tv-well)] p-1"
         style={{
           gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
@@ -178,7 +178,7 @@ export function CompareGrid() {
               transform={cellTransform(i)}
               onTransformChange={cellOnChange(i)}
               label={String(i + 1)}
-              labelColor={i === activeIdx ? 'bg-sky-600' : 'bg-neutral-600'}
+              labelColor={i === activeIdx ? 'bg-sky-600' : 'bg-[var(--tv-active)]'}
               title={entry.name}
               active={i === activeIdx}
               onActivate={() => setGridActiveIdx(i)}

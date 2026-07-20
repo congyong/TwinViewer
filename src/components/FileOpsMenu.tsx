@@ -51,7 +51,7 @@ export function ContextMenu({
   return (
     <div
       ref={ref}
-      className="fixed z-[90] w-[190px] rounded-md border border-neutral-600 bg-[#2b2b2b] py-1 shadow-2xl"
+      className="fixed z-[90] w-[190px] rounded-md border border-[var(--tv-border2)] bg-[var(--tv-overlay)] py-1 shadow-2xl"
       style={{ left, top }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -61,10 +61,10 @@ export function ContextMenu({
           className={cn(
             'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
             it.disabled
-              ? 'cursor-not-allowed text-neutral-600'
+              ? 'cursor-not-allowed text-[var(--tv-text-faint)]'
               : it.danger
                 ? 'text-red-400 hover:bg-red-500/15'
-                : 'text-neutral-200 hover:bg-sky-600/30',
+                : 'text-[var(--tv-text)] hover:bg-sky-600/30',
           )}
           disabled={it.disabled}
           title={it.title}
@@ -103,12 +103,12 @@ export function NameDialog({
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
-        className="w-80 rounded-lg border border-border bg-[#2a2a2a] p-4 shadow-2xl"
+        className="w-80 rounded-lg border border-border bg-[var(--tv-overlay)] p-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-neutral-100">{title}</h3>
-          <button className="text-neutral-500 hover:text-neutral-200" onClick={onClose}>
+          <h3 className="text-sm font-semibold text-[var(--tv-text)]">{title}</h3>
+          <button className="text-[var(--tv-text-faint)] hover:text-[var(--tv-text)]" onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -120,11 +120,11 @@ export function NameDialog({
             if (e.key === 'Enter') submit()
             if (e.key === 'Escape') onClose()
           }}
-          className="mb-3 w-full rounded border border-neutral-600 bg-[#1c1c1c] px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-sky-500"
+          className="mb-3 w-full rounded border border-[var(--tv-border2)] bg-[var(--tv-input)] px-2 py-1.5 text-sm text-[var(--tv-text)] outline-none focus:border-sky-500"
           placeholder={placeholder}
         />
         <div className="flex justify-end gap-2">
-          <button className="rounded px-3 py-1 text-xs text-neutral-300 hover:bg-white/10" onClick={onClose}>
+          <button className="rounded px-3 py-1 text-xs text-[var(--tv-text)] hover:bg-[var(--tv-hover)]" onClick={onClose}>
             取消
           </button>
           <button
@@ -159,13 +159,13 @@ export function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
-        className="w-96 rounded-lg border border-border bg-[#2a2a2a] p-4 shadow-2xl"
+        className="w-96 rounded-lg border border-border bg-[var(--tv-overlay)] p-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-2 text-sm font-semibold text-neutral-100">{title}</h3>
-        <div className="mb-4 max-h-48 overflow-y-auto text-xs leading-5 text-neutral-300">{body}</div>
+        <h3 className="mb-2 text-sm font-semibold text-[var(--tv-text)]">{title}</h3>
+        <div className="mb-4 max-h-48 overflow-y-auto text-xs leading-5 text-[var(--tv-text)]">{body}</div>
         <div className="flex justify-end gap-2">
-          <button className="rounded px-3 py-1 text-xs text-neutral-300 hover:bg-white/10" onClick={onClose}>
+          <button className="rounded px-3 py-1 text-xs text-[var(--tv-text)] hover:bg-[var(--tv-hover)]" onClick={onClose}>
             取消
           </button>
           <button

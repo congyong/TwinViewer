@@ -92,9 +92,9 @@ function BreadcrumbBar() {
   if (!dir) return null
 
   return (
-    <div className="flex shrink-0 select-none items-center gap-1.5 border-b border-white/10 bg-[#222222] px-3 py-1.5 text-xs">
+    <div className="flex shrink-0 select-none items-center gap-1.5 border-b border-[var(--tv-line)] bg-[var(--tv-panel2)] px-3 py-1.5 text-xs">
       <button
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-neutral-400 hover:bg-white/10 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--tv-text-dim)] hover:bg-[var(--tv-hover)] hover:text-[var(--tv-text)] disabled:cursor-not-allowed disabled:opacity-30"
         onClick={navigateUp}
         disabled={!currentPath}
         title="返回上级文件夹（Backspace）"
@@ -106,11 +106,11 @@ function BreadcrumbBar() {
           const last = i === crumbs.length - 1
           return (
             <span key={`${i}:${c.path}`} className="flex shrink-0 items-center gap-0.5">
-              {i > 0 && <ChevronRight className="h-3 w-3 text-neutral-600" />}
+              {i > 0 && <ChevronRight className="h-3 w-3 text-[var(--tv-text-faint)]" />}
               <button
                 className={cn(
                   'max-w-48 truncate rounded px-1 py-0.5',
-                  last ? 'font-medium text-sky-300' : 'text-neutral-400 hover:bg-white/10 hover:text-neutral-200',
+                  last ? 'font-medium text-sky-300' : 'text-[var(--tv-text-dim)] hover:bg-[var(--tv-hover)] hover:text-[var(--tv-text)]',
                 )}
                 onClick={() => {
                   if (!last) setCurrentPath(c.path)
@@ -179,8 +179,8 @@ const FolderCard = memo(function FolderCard({
       ref={ref}
       data-folder
       className={cn(
-        'group relative flex cursor-pointer flex-col overflow-hidden rounded border bg-[#1f1f1f]',
-        selected ? 'border-sky-500' : 'border-transparent hover:border-neutral-600',
+        'group relative flex cursor-pointer flex-col overflow-hidden rounded border bg-[var(--tv-card)]',
+        selected ? 'border-sky-500' : 'border-transparent hover:border-[var(--tv-border2)]',
       )}
       style={{ width: size }}
       onClick={onSelect}
@@ -247,7 +247,7 @@ function ListHeader() {
   }
   const head = (label: string, k: SortKey, className: string) => (
     <button
-      className={cn('flex items-center gap-0.5 hover:text-neutral-200', className)}
+      className={cn('flex items-center gap-0.5 hover:text-[var(--tv-text)]', className)}
       onClick={() => onSort(k)}
       title={`按${label}排序（点击切换升降序）`}
     >
@@ -258,7 +258,7 @@ function ListHeader() {
   )
 
   return (
-    <div className="flex select-none items-center gap-2 border-b border-white/10 px-2 py-1.5 text-[11px] text-neutral-500">
+    <div className="flex select-none items-center gap-2 border-b border-[var(--tv-line)] px-2 py-1.5 text-[11px] text-[var(--tv-text-faint)]">
       <span className="w-4 shrink-0" />
       <span className="w-10 shrink-0" />
       {head('名称', 'name', 'min-w-0 flex-1 justify-start text-left')}
@@ -290,7 +290,7 @@ const FolderRow = memo(function FolderRow({
       data-folder
       className={cn(
         'group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1 text-xs',
-        selected ? 'bg-sky-600/20' : 'hover:bg-white/5',
+        selected ? 'bg-sky-600/20' : 'hover:bg-[var(--tv-soft)]',
       )}
       onClick={onSelect}
       onDoubleClick={onOpen}
@@ -366,7 +366,7 @@ const ImageRow = memo(function ImageRow({
       data-thumb
       className={cn(
         'group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1 text-xs',
-        checked ? 'bg-sky-600/15' : 'hover:bg-white/5',
+        checked ? 'bg-sky-600/15' : 'hover:bg-[var(--tv-soft)]',
         isCurrent && 'ring-1 ring-amber-500',
       )}
       onClick={onSelect}
@@ -384,7 +384,7 @@ const ImageRow = memo(function ImageRow({
         onContextMenu={(e) => e.stopPropagation()}
         title="勾选用于 A/B 对比与导航"
       />
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-[#161616]">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--tv-well)]">
         {url ? (
           <img
             src={url}
@@ -400,13 +400,13 @@ const ImageRow = memo(function ImageRow({
             }}
           />
         ) : (
-          <span className="text-[10px] text-neutral-700">…</span>
+          <span className="text-[10px] text-[var(--tv-text-faint)]">…</span>
         )}
       </span>
-      <span className="min-w-0 flex-1 truncate text-neutral-200">{entry.name}</span>
-      <span className="w-24 shrink-0 text-right text-neutral-400">{dims ? `${dims.w} × ${dims.h}` : '—'}</span>
-      <span className="w-24 shrink-0 text-right text-neutral-400">{formatBytes(entry.size)}</span>
-      <span className="w-36 shrink-0 text-right text-neutral-400">{formatTime(entry.lastModified)}</span>
+      <span className="min-w-0 flex-1 truncate text-[var(--tv-text)]">{entry.name}</span>
+      <span className="w-24 shrink-0 text-right text-[var(--tv-text-dim)]">{dims ? `${dims.w} × ${dims.h}` : '—'}</span>
+      <span className="w-24 shrink-0 text-right text-[var(--tv-text-dim)]">{formatBytes(entry.size)}</span>
+      <span className="w-36 shrink-0 text-right text-[var(--tv-text-dim)]">{formatTime(entry.lastModified)}</span>
     </div>
   )
 })
@@ -468,8 +468,8 @@ const ThumbItem = memo(function ThumbItem({
       ref={ref}
       data-thumb
       className={cn(
-        'group relative flex cursor-pointer flex-col overflow-hidden rounded border bg-[#1f1f1f]',
-        checked ? 'border-sky-500' : 'border-transparent hover:border-neutral-600',
+        'group relative flex cursor-pointer flex-col overflow-hidden rounded border bg-[var(--tv-card)]',
+        checked ? 'border-sky-500' : 'border-transparent hover:border-[var(--tv-border2)]',
         isCurrent && 'ring-1 ring-amber-500',
       )}
       style={{ width: size }}
@@ -479,16 +479,16 @@ const ThumbItem = memo(function ThumbItem({
       title={`${entry.path}（双击进入单图模式，右键文件操作）`}
     >
       <div
-        className="flex items-center justify-center overflow-hidden bg-[#161616]"
+        className="flex items-center justify-center overflow-hidden bg-[var(--tv-well)]"
         style={{ width: size, height: size }}
       >
         {url ? (
           <img src={url} alt={entry.name} loading="lazy" className="h-full w-full object-contain" draggable={false} />
         ) : (
-          <div className="text-xs text-neutral-600">…</div>
+          <div className="text-xs text-[var(--tv-text-faint)]">…</div>
         )}
       </div>
-      <div className="truncate px-1.5 py-1 text-center text-[11px] text-neutral-300">{entry.name}</div>
+      <div className="truncate px-1.5 py-1 text-center text-[11px] text-[var(--tv-text)]">{entry.name}</div>
       {/* 勾选标记仅保留左上角 checkbox（选中态由边框高亮表达） */}
       <label
         className={cn(
@@ -821,7 +821,7 @@ export function ThumbnailGrid() {
                     <strong>不进回收站，此操作不可恢复！</strong>
                   </p>
                 )}
-                <ul className="mt-1 space-y-0.5 text-neutral-400">
+                <ul className="mt-1 space-y-0.5 text-[var(--tv-text-dim)]">
                   {deleteTargets.slice(0, 8).map((e) => (
                     <li key={e.id} className="truncate" title={e.path}>
                       · {e.name}

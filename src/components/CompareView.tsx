@@ -91,7 +91,7 @@ export function CompareView() {
 
   if (!entryA || !entryB) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-neutral-500">
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--tv-text-faint)]">
         <p>请先在浏览模式勾选 2 张图片，或从单图模式按 A / B 键指定对比图。</p>
       </div>
     )
@@ -209,7 +209,7 @@ export function CompareView() {
               )}
             </div>
             <div
-              className="w-1.5 shrink-0 cursor-col-resize bg-[#333] hover:bg-sky-600"
+              className="w-1.5 shrink-0 cursor-col-resize bg-[var(--tv-border2)] hover:bg-sky-600"
               title="拖拽调整左右比例"
               onPointerDown={onDividerDown}
               onPointerMove={onDividerMove}
