@@ -116,7 +116,7 @@ export function Toolbar() {
   )
 
   return (
-    <div className="flex select-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-[var(--tv-panel)] px-3 py-2">
+    <div data-chrome="toolbar" className="flex select-none flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-[var(--tv-panel)] px-3 py-2">
       <div className="flex items-center gap-1.5 text-sm font-semibold text-sky-400">
         <Aperture className="h-4 w-4" /> TwinView
       </div>

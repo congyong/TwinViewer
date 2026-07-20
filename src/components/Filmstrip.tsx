@@ -161,7 +161,7 @@ export function Filmstrip() {
   }
 
   return (
-    <div className="shrink-0 border-t border-border bg-[var(--tv-panel)]">
+    <div data-chrome="filmstrip" className="shrink-0 border-t border-border bg-[var(--tv-panel)]">
       <div className="flex items-center gap-3 px-3 pt-1.5 text-xs text-[var(--tv-text-dim)]">
         <span>导航范围：</span>
         <div className="inline-flex overflow-hidden rounded border border-[var(--tv-border2)]">

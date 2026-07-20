@@ -31,6 +31,7 @@ export default function App() {
   const navScope = useAppStore((s) => s.navScope)
   const checked = useAppStore((s) => s.checked)
   const fullscreenCell = useAppStore((s) => s.fullscreenCell)
+  const physicalFullscreen = useAppStore((s) => s.physicalFullscreen)
   const reconcileNav = useAppStore((s) => s.reconcileNav)
   const revokeAll = useAppStore((s) => s.revokeAll)
 
@@ -79,12 +80,15 @@ export default function App() {
   const hasImages = images.length > 0
   // 单图应用内全屏：隐藏侧栏与胶片条（对比/网格单格全屏保留外框，与既有行为一致）
   const hideChrome = fullscreenCell === 'single'
+  // 物理全屏 = 真全屏：卸载一切应用 chrome（工具栏/侧栏/胶片条），只留图像 + 浮层 + 悬浮迷你条。
+  // 不改 sidebarOpen/filmstripOpen 本身，退出后自然恢复原面板可见性；fullscreenchange 同步保证 Esc 退出同样恢复。
+  const physical = physicalFullscreen
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[var(--tv-bg)] text-[var(--tv-text)]">
-      <Toolbar />
+      {!physical && <Toolbar />}
       <div className="flex min-h-0 flex-1">
-        {sidebarOpen && !hideChrome && <Sidebar />}
+        {sidebarOpen && !hideChrome && !physical && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="min-h-0 flex-1">
             {loading && (
@@ -103,7 +107,7 @@ export default function App() {
             {!loading && !loadError && hasImages && viewMode === 'compare' && <CompareView />}
             {!loading && !loadError && hasImages && viewMode === 'grid' && <CompareGrid />}
           </main>
-          {filmstripOpen && hasImages && !hideChrome && <Filmstrip />}
+          {filmstripOpen && hasImages && !hideChrome && !physical && <Filmstrip />}
         </div>
       </div>
       <HelpOverlay />
