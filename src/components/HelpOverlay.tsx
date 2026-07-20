@@ -1,7 +1,7 @@
 import { useAppStore } from '@/store/appStore'
 
 const SHORTCUTS: { keys: string; desc: string }[] = [
-  { keys: '← / → 或 PgUp / PgDn', desc: '上一张 / 下一张（按当前导航范围循环；对比模式换激活侧，网格模式换激活格）' },
+  { keys: '← / → 或 PgUp / PgDn', desc: '上一张 / 下一张（按当前导航范围循环）。单图：切当前图；对比：切**激活槽位**的图（跳过另一槽占据项，无可切换时弹出提示）；网格：切激活格（跳过其他格占据项）' },
   { keys: 'R / L', desc: '向右 / 向左旋转 90°（仅视图层，不修改文件）' },
   { keys: 'F', desc: '单图 / 对比 / 网格 = 进入或退出对应单格全屏（控件内）' },
   { keys: 'Shift+F', desc: '单格全屏中切换物理全屏（隐藏浏览器 / 窗口边框）' },

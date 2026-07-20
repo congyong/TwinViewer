@@ -32,6 +32,7 @@ export default function App() {
   const checked = useAppStore((s) => s.checked)
   const fullscreenCell = useAppStore((s) => s.fullscreenCell)
   const physicalFullscreen = useAppStore((s) => s.physicalFullscreen)
+  const notice = useAppStore((s) => s.notice)
   const reconcileNav = useAppStore((s) => s.reconcileNav)
   const revokeAll = useAppStore((s) => s.revokeAll)
 
@@ -110,6 +111,12 @@ export default function App() {
           {filmstripOpen && hasImages && !hideChrome && !physical && <Filmstrip />}
         </div>
       </div>
+      {/* 一次性操作提示（如对比导航无可切换项）：3s 自动消失 */}
+      {notice && (
+        <div data-notice className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded bg-black/80 px-3 py-1.5 text-xs text-neutral-200 shadow-lg">
+          {notice}
+        </div>
+      )}
       <HelpOverlay />
       <OpenFolderDialog />
     </div>

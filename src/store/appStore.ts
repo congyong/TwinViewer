@@ -182,6 +182,8 @@ export interface AppState {
   loadError: string | null
   /** Electron：自绘「打开文件夹」对话框显隐 */
   openFolderDialogOpen: boolean
+  /** 一次性操作提示（如对比导航无可切换项），3s 自动消失 */
+  notice: string | null
   recursive: boolean
   images: ImageEntry[]
   currentPath: string
@@ -232,6 +234,7 @@ export interface AppState {
   openPath: (path: string) => Promise<void>
   rescan: () => Promise<void>
   setOpenFolderDialog: (v: boolean) => void
+  showNotice: (msg: string) => void
   /** 打开目录并（可选）按绝对路径定位选中某文件（系统选择器选中文件 / CLI 文件路径共用） */
   openPathFocus: (dirPath: string, focusFile?: string) => Promise<void>
   /** 主进程 CLI 下发（cli-open）：直接生效，不走任何确认弹窗 */
@@ -299,12 +302,16 @@ export interface AppState {
   revokeAll: () => void
 }
 
+/** showNotice 自动消失计时器（模块级单例） */
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
+
 export const useAppStore = create<AppState>()((set, get) => ({
   providerKind: getFSProvider().kind,
   dir: null,
   loading: false,
   loadError: null,
   openFolderDialogOpen: false,
+  notice: null,
   recursive: settings.recursive,
   images: [],
   currentPath: '',
@@ -375,6 +382,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   setOpenFolderDialog: (v) => set({ openFolderDialogOpen: v }),
+
+  showNotice: (msg) => {
+    if (noticeTimer) clearTimeout(noticeTimer)
+    set({ notice: msg })
+    noticeTimer = setTimeout(() => set({ notice: null }), 3000)
+  },
 
   openPathFocus: async (dirPath, focusFile) => {
     await get().openPath(dirPath)
@@ -694,32 +707,55 @@ export const useAppStore = create<AppState>()((set, get) => ({
       if (idx < 0) return nav[delta >= 0 ? 0 : nav.length - 1].id
       return nav[(idx + delta + nav.length) % nav.length].id
     }
-    if (s.viewMode === 'compare') {
-      // 跳过另一侧槽位占据的图：否则 A/B 收敛到同一张后 X 交换「看似失效」（两侧同图，交换无视觉变化）
-      const other = s.activeSlot === 'A' ? s.slotB : s.slotA
-      const stepIdSkip = (id: string | null): string => {
-        const idx = nav.findIndex((e) => e.id === id)
-        if (idx < 0) {
-          let next = delta >= 0 ? 0 : nav.length - 1
-          for (let i = 0; i < nav.length; i++) {
-            if (nav[next].id !== other) return nav[next].id
-            next = (next + delta + nav.length) % nav.length
-          }
-          return nav[delta >= 0 ? 0 : nav.length - 1].id
+    /** 在导航集合内循环步进，跳过 skip 命中的项（如另一槽位/其他格占据的图）；无处可去返回原值 */
+    const stepIdSkipping = (id: string | null, skip: (id: string) => boolean): string => {
+      const len = nav.length
+      const idx = nav.findIndex((e) => e.id === id)
+      if (idx < 0) {
+        let next = delta >= 0 ? 0 : len - 1
+        for (let i = 0; i < len; i++) {
+          if (!skip(nav[next].id)) return nav[next].id
+          next = (next + delta + len) % len
         }
-        let next = idx
-        for (let i = 0; i < nav.length; i++) {
-          next = (next + delta + nav.length) % nav.length
-          if (nav[next].id !== other) return nav[next].id
-        }
-        return nav[idx].id // 集合仅 1 项（即 other 本身）：无处可去，保持
+        return nav[delta >= 0 ? 0 : len - 1].id
       }
+      let next = idx
+      for (let i = 0; i < len; i++) {
+        next = (next + delta + len) % len
+        if (!skip(nav[next].id)) return nav[next].id
+      }
+      return nav[idx].id // 集合内除被占据项外无其他项：无处可去，保持
+    }
+    /** 按键无副作用时的一次性提示（避免用户以为按键失效） */
+    const noticeNoop = (occupied: string) => {
+      get().showNotice(
+        s.navScope === 'checked'
+          ? `仅勾选 ${nav.length} 张，${occupied}，无可切换项；切到「全部」可浏览更多`
+          : `集合内没有可切换的图片（${occupied}）`,
+      )
+    }
+    if (s.viewMode === 'compare') {
+      // ←/→ 永远作用于**激活槽位**（Tab 切换），跳过另一侧槽位占据的图
+      const other = s.activeSlot === 'A' ? s.slotB : s.slotA
       const cur = s.activeSlot === 'A' ? s.slotA : s.slotB
-      set(s.activeSlot === 'A' ? { slotA: stepIdSkip(cur) } : { slotB: stepIdSkip(cur) })
+      const next = stepIdSkipping(cur, (id) => id === other)
+      if (next === cur) {
+        noticeNoop('另一槽位已占据其余图片')
+        return
+      }
+      set(s.activeSlot === 'A' ? { slotA: next } : { slotB: next })
     } else if (s.viewMode === 'single') {
       set({ currentId: stepId(s.currentId) })
     } else if (s.viewMode === 'grid' && s.gridIds.length > 0) {
-      get().setGridCellImage(s.gridActiveIdx, stepId(s.gridIds[s.gridActiveIdx] ?? null))
+      // ←/→ 作用于**激活格**（Tab/数字键切换），跳过其他格占据的图
+      const others = new Set(s.gridIds.filter((_, i) => i !== s.gridActiveIdx))
+      const cur = s.gridIds[s.gridActiveIdx] ?? null
+      const next = stepIdSkipping(cur, (id) => others.has(id))
+      if (next === cur) {
+        noticeNoop('其他格已占据其余图片')
+        return
+      }
+      get().setGridCellImage(s.gridActiveIdx, next)
       return
     }
     preloadCurrentContext(get())
