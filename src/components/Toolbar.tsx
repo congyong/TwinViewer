@@ -14,17 +14,21 @@ import {
   Layers,
   LayoutGrid,
   List,
+  ListChecks,
   ListFilter,
+  Monitor,
+  Moon,
   PanelBottom,
   PanelLeft,
   RotateCw,
   Rows3,
   SkipForward,
+  Sun,
   X,
 } from 'lucide-react'
 import { getExtension } from '@/lib/fs-provider'
 import { useAppStore } from '@/store/appStore'
-import type { BrowseMode, CompareLayout, GridLayout, ResampleMode, SortKey } from '@/store/appStore'
+import type { BrowseMode, CompareLayout, GridLayout, ResampleMode, SortKey, ThemeMode } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -285,16 +289,55 @@ export function Toolbar() {
         {count >= 3 ? <Grid3X3 className="h-3.5 w-3.5" /> : <Images className="h-3.5 w-3.5" />}
         对比选中{count > 0 ? ` (${count})` : ''}
       </Button>
-      {count > 0 && (
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="清除勾选" onClick={clearChecked}>
-          <X className="h-3.5 w-3.5" />
+      {/* 勾选管理组：全选 / 清除选择（无勾选时置灰） */}
+      <div className="flex items-center gap-0.5 rounded border border-[var(--tv-border2)] p-0.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 gap-1 px-2 text-xs"
+          disabled={images.length === 0}
+          title="勾选当前视野全部图片"
+          onClick={checkAll}
+        >
+          <ListChecks className="h-3.5 w-3.5" /> 全选
         </Button>
-      )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 gap-1 px-2 text-xs"
+          disabled={count === 0}
+          title="清除全部勾选"
+          onClick={clearChecked}
+        >
+          <X className="h-3.5 w-3.5" /> 清除选择
+        </Button>
+      </div>
 
       <div className="flex-1" />
 
+      {/* 主题三档：暗色 / 亮色 / 跟随系统（持久化） */}
+      <ToggleGroup
+        type="single"
+        value={theme}
+        onValueChange={(v) => {
+          if (v) setTheme(v as ThemeMode)
+        }}
+        className="gap-0"
+        title="主题"
+      >
+        <ToggleGroupItem value="dark" className="h-7 w-7 p-0" title="暗色主题">
+          <Moon className="h-3.5 w-3.5" />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="light" className="h-7 w-7 p-0" title="亮色主题">
+          <Sun className="h-3.5 w-3.5" />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="system" className="h-7 w-7 p-0" title="跟随系统主题">
+          <Monitor className="h-3.5 w-3.5" />
+        </ToggleGroupItem>
+      </ToggleGroup>
+
       <Select value={resample} onValueChange={(v) => setResample(v as ResampleMode)}>
-        <SelectTrigger className="h-7 w-40 text-xs" title="全局缩放重采样算法（* 双线性 / 双立方为 Canvas 平滑近似，持久化保存）">
+        <SelectTrigger className="h-7 w-48 text-xs" title="全局缩放重采样算法（* 为软件精确重采样：先平滑预览，停手后精确重绘，持久化保存）">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

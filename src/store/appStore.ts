@@ -668,8 +668,27 @@ export const useAppStore = create<AppState>()((set, get) => ({
       return nav[(idx + delta + nav.length) % nav.length].id
     }
     if (s.viewMode === 'compare') {
+      // 跳过另一侧槽位占据的图：否则 A/B 收敛到同一张后 X 交换「看似失效」（两侧同图，交换无视觉变化）
+      const other = s.activeSlot === 'A' ? s.slotB : s.slotA
+      const stepIdSkip = (id: string | null): string => {
+        const idx = nav.findIndex((e) => e.id === id)
+        if (idx < 0) {
+          let next = delta >= 0 ? 0 : nav.length - 1
+          for (let i = 0; i < nav.length; i++) {
+            if (nav[next].id !== other) return nav[next].id
+            next = (next + delta + nav.length) % nav.length
+          }
+          return nav[delta >= 0 ? 0 : nav.length - 1].id
+        }
+        let next = idx
+        for (let i = 0; i < nav.length; i++) {
+          next = (next + delta + nav.length) % nav.length
+          if (nav[next].id !== other) return nav[next].id
+        }
+        return nav[idx].id // 集合仅 1 项（即 other 本身）：无处可去，保持
+      }
       const cur = s.activeSlot === 'A' ? s.slotA : s.slotB
-      set(s.activeSlot === 'A' ? { slotA: stepId(cur) } : { slotB: stepId(cur) })
+      set(s.activeSlot === 'A' ? { slotA: stepIdSkip(cur) } : { slotB: stepIdSkip(cur) })
     } else if (s.viewMode === 'single') {
       set({ currentId: stepId(s.currentId) })
     } else if (s.viewMode === 'grid' && s.gridIds.length > 0) {
