@@ -542,6 +542,7 @@ export function ThumbnailGrid() {
   const [toast, setToast] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
+  const [dropActive, setDropActive] = useState(false)
 
   const visible = useMemo(
     () => getVisibleImages({ images, dir, currentPath, recursive, formatFilter, sortKey, sortAsc }),
@@ -625,6 +626,36 @@ export function ThumbnailGrid() {
       await rescan()
       return opSummary('粘贴', r)
     })
+
+  /** 系统拖放：文件/文件夹递归复制到当前目录（Electron 走主进程 copyInto；浏览器走 FS Access 写入） */
+  const doDrop = (dt: DataTransfer) => {
+    if (!dir) return
+    if (!canWrite) {
+      setToast(noWriteReason ?? '当前环境不支持写入')
+      return
+    }
+    void runOp(async () => {
+      const provider = getFSProvider()
+      if (provider.kind === 'electron') {
+        if (!provider.getPathForFile || !provider.copyInto) return '当前环境不支持拖放'
+        const paths = Array.from(dt.files)
+          .map((f) => provider.getPathForFile!(f))
+          .filter((p) => !!p)
+        if (paths.length === 0) return '未识别拖入的文件'
+        const r = await provider.copyInto(paths, electronTargetDir(dir, currentPath))
+        await rescan()
+        return opSummary('拖入复制', r)
+      }
+      if (!dir.handle) return '浏览器回退模式（webkitdirectory）不支持拖放写入'
+      const items = await dropItemsFromDataTransfer(dt)
+      if (items.length === 0) return '未识别拖入的内容'
+      const r = await dropToDirectory(items, currentPath, dir, (done, total) => {
+        if (done % 10 === 0 || done === total) setToast(`已复制 ${done}/${total} 项…`)
+      })
+      await rescan()
+      return opSummary('拖入复制', r)
+    })
+  }
 
   const doMakeDir = (name: string) => {
     setNameDialogOpen(false)
@@ -720,9 +751,31 @@ export function ThumbnailGrid() {
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest('[data-folder]')) setSelectedFolder(null)
         }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes('Files')) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+          if (!dropActive) setDropActive(true)
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropActive(false)
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.types.includes('Files')) return
+          e.preventDefault()
+          setDropActive(false)
+          doDrop(e.dataTransfer)
+        }}
       >
+        {dropActive && (
+          <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-sky-400 bg-sky-500/10">
+            <div className="rounded bg-black/70 px-3 py-1.5 text-sm text-sky-200">
+              {canWrite ? '释放以复制到当前文件夹' : (noWriteReason ?? '当前环境不支持写入')}
+            </div>
+          </div>
+        )}
         {empty ? (
-          <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+          <div className="flex h-full items-center justify-center text-sm text-[var(--tv-text-faint)]">
             {images.length === 0
               ? '当前文件夹没有图片'
               : '当前目录/过滤条件下没有内容（可切换目录或调整「含子文件夹」/ 格式过滤）'}
