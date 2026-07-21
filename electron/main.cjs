@@ -911,18 +911,52 @@ async function runSmokeTest(win) {
         return fail(`差值热图不符预期: ${JSON.stringify(diffAssert)}`)
       }
 
-      // a.13) 录制状态机：按钮存在 → S 开始倒计时（胶囊）→ S 取消 → 倒计时结束采集（结果报告值）→
-      //       停止倒计时（胶囊）→ 倒计时内取消 → 停止 → 保存对话框（格式/画质）→ 取消回 idle
+      // a.13) 录制状态机（先配置后开录）：按钮 → S 出配置对话框（格式/画质按钮齐全、默认 video/medium）→
+      //       选 GIF/低画质（持久化到 settings）→ 取消/Esc 回 idle → 再开记住上次选择 →
+      //       「开始录制」→ starting 倒计时 → S 取消 → 确认采集（结果报告值）→ 停止倒计时（可取消）→
+      //       saving 自动弹系统保存（冒烟 IPC 模拟用户取消，留 saving）→ 保存参数与开录前一致 → 放弃回 idle
       const recAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
         const wait = (ms) => new Promise((r) => setTimeout(r, ms))
         const out = {}
         const S = () => store.getState()
+        const click = (sel) => document.querySelector(sel)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         store.setState({ viewMode: 'single', currentId: S().images[0].id, fullscreenCell: null, physicalFullscreen: false })
+        S().setRecFormat('video'); S().setRecQuality('medium') // 复位默认（冒烟 profile 可能残留上次运行值）
         await wait(300)
         out.btnShown = !!document.querySelector('[data-rec-btn]')
-        // S 键 → 开始倒计时
+        // S 键 → 开录前配置对话框
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }))
+        await wait(200)
+        out.configPhase = S().recPhase === 'configuring'
+        out.configShown = !!document.querySelector('[data-rec-config]')
+        out.formatBtns = !!document.querySelector('[data-rec-format-video]') && !!document.querySelector('[data-rec-format-gif]')
+        out.qualityBtns = document.querySelectorAll('[data-rec-quality]').length === 3
+        out.defaults = S().recFormat === 'video' && S().recQuality === 'medium'
+        // 选择 GIF + 低画质（持久化断言：localStorage settings values 同步）
+        click('[data-rec-format-gif]')
+        click('[data-rec-quality="low"]')
+        await wait(150)
+        out.picked = S().recFormat === 'gif' && S().recQuality === 'low'
+        try {
+          const sv = JSON.parse(localStorage.getItem('twinview.settings')).values
+          out.persisted = sv.recFormat === 'gif' && sv.recQuality === 'low'
+        } catch { out.persisted = false }
+        // 取消 → idle；再开 → 记住上次选择
+        click('[data-rec-cancel]')
+        await wait(200)
+        out.cancelConfig = S().recPhase === 'idle' && !document.querySelector('[data-rec-config]')
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }))
+        await wait(200)
+        out.remembered = S().recPhase === 'configuring' && S().recFormat === 'gif' && S().recQuality === 'low'
+        // Esc 关闭配置对话框回 idle
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await wait(200)
+        out.escCancel = S().recPhase === 'idle' && !document.querySelector('[data-rec-config]')
+        // 「开始录制」→ starting 倒计时
+        S().toggleRecord()
+        await wait(150)
+        click('[data-rec-start]')
         await wait(200)
         out.startingPhase = S().recPhase === 'starting'
         const pill0 = document.querySelector('[data-rec-pill]')
@@ -931,8 +965,10 @@ async function runSmokeTest(win) {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', bubbles: true }))
         await wait(200)
         out.cancelStart = S().recPhase === 'idle'
-        // 再次开始并快进到采集（headless 下采集成败只报告不断言）
+        // 再次配置→确认并快进到采集（headless 下采集成败只报告不断言）
         S().toggleRecord()
+        await wait(150)
+        S().confirmRecConfig()
         await wait(150)
         store.setState({ recCountdown: 1 })
         await wait(1600)
@@ -949,7 +985,7 @@ async function runSmokeTest(win) {
         S().toggleRecord()
         await wait(150)
         out.cancelStop = S().recPhase === 'recording'
-        // 再次停止并快进
+        // 再次停止并快进 → saving（自动弹系统保存；冒烟 IPC 返回 null=用户取消，留 saving）
         S().toggleRecord()
         await wait(150)
         store.setState({ recCountdown: 1 })
@@ -958,19 +994,27 @@ async function runSmokeTest(win) {
         if (S().recPhase !== 'saving') {
           store.setState({ recPhase: 'saving', recBlob: new Blob(['x']), recMime: 'video/mp4' })
         }
-        await wait(300)
+        await wait(400)
+        // 保存参数与开录前选择一致（GIF/低画质），叠层明示参数，不再询问格式/画质
+        out.paramsKept = S().recFormat === 'gif' && S().recQuality === 'low'
         out.dialogShown = !!document.querySelector('[data-rec-save]')
-        out.formatBtns = !!document.querySelector('[data-rec-format-video]') && !!document.querySelector('[data-rec-format-gif]')
-        out.qualityBtns = document.querySelectorAll('[data-rec-quality]').length === 3
-        document.querySelector('[data-rec-cancel]').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        const paramsEl = document.querySelector('[data-rec-save-params]')
+        out.saveParamsShown = !!paramsEl && paramsEl.textContent.includes('GIF') && paramsEl.textContent.includes('低')
+        out.noReask = !!document.querySelector('[data-rec-save]') && !document.querySelector('[data-rec-save] [data-rec-quality]')
+        // 放弃录制 → idle
+        click('[data-rec-discard]')
         await wait(200)
-        out.cancelled = S().recPhase === 'idle' && !document.querySelector('[data-rec-save]')
+        out.discarded = S().recPhase === 'idle' && !document.querySelector('[data-rec-save]')
+        // 复位（含持久化默认值还原）
+        S().setRecFormat('video'); S().setRecQuality('medium')
         store.setState({ viewMode: 'browse', recPhase: 'idle' })
         S().setViewMode('browse')
         await wait(200)
-        out.ok = out.btnShown && out.startingPhase && out.pillShown && out.cancelStart &&
+        out.ok = out.btnShown && out.configPhase && out.configShown && out.formatBtns && out.qualityBtns &&
+          out.defaults && out.picked && out.persisted && out.cancelConfig && out.remembered && out.escCancel &&
+          out.startingPhase && out.pillShown && out.cancelStart &&
           out.stoppingPhase && out.stopPill && out.cancelStop &&
-          out.dialogShown && out.formatBtns && out.qualityBtns && out.cancelled
+          out.paramsKept && out.dialogShown && out.saveParamsShown && out.noReask && out.discarded
         return out
       })()`)
       console.log(`[SMOKE] 录制状态机: ${JSON.stringify(recAssert)}`)
@@ -1187,6 +1231,8 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
 
   // 录制：保存对话框（默认文件名 + 格式过滤），返回绝对路径或 null（取消）
   ipcMain.handle('rec-save-dialog', async (event, defaultName, extLabel, ext) => {
+    // 冒烟模式：直接返回 null（模拟用户取消路径选择），避免 headless 下原生对话框卡死
+    if (process.env.TWINVIEW_SMOKE) return null
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return null
     const r = await dialog.showSaveDialog(win, {

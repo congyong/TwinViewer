@@ -20,6 +20,7 @@ import type {
   DiffColormap,
   FavoriteEntry,
   NavScope,
+  RecFormat,
   ResampleMode,
   SortKey,
   ThemeMode,
@@ -37,7 +38,7 @@ import {
 } from '@/lib/recorder'
 
 export type ViewMode = 'browse' | 'single' | 'compare' | 'grid'
-export type { BrowseMode, CompareLayout, DiffColormap, NavScope, ResampleMode, SortKey, ThemeMode }
+export type { BrowseMode, CompareLayout, DiffColormap, NavScope, RecFormat, ResampleMode, SortKey, ThemeMode }
 export type { RecQuality } from '@/lib/recorder'
 export type GridLayout = 'auto' | '1x2' | '2x1' | '2x2' | '3x2' | '2x3' | '3x3'
 export type ProviderKind = 'browser' | 'electron'
@@ -246,15 +247,16 @@ export interface AppState {
   diffTolerance: number
   /** D 键切 diff 前的布局（退出 diff 时还原；会话级不持久化） */
   diffPrevLayout: CompareLayout
-  /** 录制状态机：idle→starting(倒计时)→recording→stopping(倒计时)→saving→idle */
-  recPhase: 'idle' | 'starting' | 'recording' | 'stopping' | 'saving'
+  /** 录制状态机：idle→configuring(开录前配置)→starting(倒计时)→recording→stopping(倒计时)→saving(系统保存对话框)→idle */
+  recPhase: 'idle' | 'configuring' | 'starting' | 'recording' | 'stopping' | 'saving'
   recCountdown: number
   /** 录制进行秒数（徽标计时） */
   recElapsed: number
   /** 实际视频容器（'' = MediaRecorder 不可用，仅 GIF 可出） */
   recMime: string
   recBlob: Blob | null
-  recFormat: 'video' | 'gif'
+  /** 开录前选择的格式/画质（持久化，取上次选择；保存阶段不再询问） */
+  recFormat: RecFormat
   recQuality: RecQuality
 
   openDirectory: () => Promise<void>
@@ -301,11 +303,15 @@ export interface AppState {
   toggleDiffLayout: () => void
   setDiffColormap: (m: DiffColormap) => void
   setDiffTolerance: (v: number) => void
-  /** S 键 / 工具栏按钮：录制开关（idle→倒计时开始；录制中→倒计时停止；倒计时内再按取消） */
+  /** S 键 / 工具栏按钮：idle→开录前配置；录制中→倒计时停止；倒计时内再按取消（configuring/saving 中 S 无效） */
   toggleRecord: () => void
+  /** 配置对话框「开始录制」：确认格式/画质（已持久化）→ 进入 3 秒开始倒计时 */
+  confirmRecConfig: () => void
+  /** 配置对话框「取消」/ Esc：关闭对话框回 idle */
+  cancelRecConfig: () => void
   beginCapture: () => Promise<void>
   finalizeCapture: () => Promise<void>
-  setRecFormat: (f: 'video' | 'gif') => void
+  setRecFormat: (f: RecFormat) => void
   setRecQuality: (q: RecQuality) => void
   saveRecording: () => Promise<void>
   cancelSave: () => void
@@ -422,8 +428,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   recElapsed: 0,
   recMime: '',
   recBlob: null,
-  recFormat: 'video',
-  recQuality: 'medium',
+  recFormat: settings.recFormat,
+  recQuality: settings.recQuality,
 
   openDirectory: async () => {
     const provider = getFSProvider()
@@ -916,19 +922,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   toggleRecord: () => {
     const phase = get().recPhase
     if (phase === 'idle') {
-      // 开始倒计时（3s，叠显示区中央悬浮胶囊；倒计时内再按 S 取消）
-      clearRecTimers()
-      set({ recPhase: 'starting', recCountdown: 3 })
-      recTickTimer = setInterval(() => {
-        const c = get().recCountdown
-        if (c <= 1) {
-          if (recTickTimer !== null) clearInterval(recTickTimer)
-          recTickTimer = null
-          void get().beginCapture()
-        } else {
-          set({ recCountdown: c - 1 })
-        }
-      }, 1000)
+      // 先配置后开录：弹出开录前配置对话框（格式/画质，默认取上次选择）
+      set({ recPhase: 'configuring' })
     } else if (phase === 'starting') {
       // 开始倒计时内取消
       clearRecTimers()
@@ -953,7 +948,29 @@ export const useAppStore = create<AppState>()((set, get) => ({
       recTickTimer = null
       set({ recPhase: 'recording', recCountdown: 0 })
     }
-    // saving 中 S 无效（对话框操作）
+    // configuring / saving 中 S 无效（对话框操作）
+  },
+
+  confirmRecConfig: () => {
+    if (get().recPhase !== 'configuring') return
+    // 开始倒计时（3s，叠显示区中央悬浮胶囊；倒计时内再按 S 取消）
+    clearRecTimers()
+    set({ recPhase: 'starting', recCountdown: 3 })
+    recTickTimer = setInterval(() => {
+      const c = get().recCountdown
+      if (c <= 1) {
+        if (recTickTimer !== null) clearInterval(recTickTimer)
+        recTickTimer = null
+        void get().beginCapture()
+      } else {
+        set({ recCountdown: c - 1 })
+      }
+    }, 1000)
+  },
+
+  cancelRecConfig: () => {
+    if (get().recPhase !== 'configuring') return
+    set({ recPhase: 'idle' })
   },
 
   beginCapture: async () => {
@@ -981,6 +998,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const { blob, mime } = await stopCapture()
     if (blob || gifFrameCount() > 0) {
       set({ recPhase: 'saving', recBlob: blob, recMime: mime })
+      // 停止后直接弹系统保存对话框选位置（格式/画质按开录前选择，不再询问）；
+      // 用户取消路径选择则留在 saving，由叠层提供「重试保存 / 放弃录制」
+      void get().saveRecording()
     } else {
       clearSession()
       set({ recPhase: 'idle', recBlob: null, recMime: '' })
@@ -988,8 +1008,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setRecFormat: (f) => set({ recFormat: f }),
-  setRecQuality: (q) => set({ recQuality: q }),
+  setRecFormat: (f) => {
+    updateSettings({ recFormat: f })
+    set({ recFormat: f })
+  },
+  setRecQuality: (q) => {
+    updateSettings({ recQuality: q })
+    set({ recQuality: q })
+  },
 
   saveRecording: async () => {
     const s = get()

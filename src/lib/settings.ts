@@ -14,6 +14,10 @@ export type CompareLayout = 'wipe' | 'side' | 'overlay' | 'diff'
 export type NavScope = 'all' | 'checked'
 /** 差值热图 colormap */
 export type DiffColormap = 'inferno' | 'gray' | 'viridis' | 'coolwarm'
+/** 录制格式（开录前配置，持久化上次选择） */
+export type RecFormat = 'video' | 'gif'
+import type { RecQuality } from '@/lib/recorder'
+export type { RecQuality }
 
 export interface FavoriteEntry {
   path: string
@@ -46,6 +50,10 @@ export interface SettingsData {
   diffColormap: DiffColormap
   /** 差值容差 0–128（≤容差的像素置黑） */
   diffTolerance: number
+  /** 录制格式（开录前配置对话框默认取上次选择） */
+  recFormat: RecFormat
+  /** 录制画质档（视频码率于录制开始确定；GIF 影响色数与缩放） */
+  recQuality: RecQuality
   favorites: FavoriteEntry[]
 }
 
@@ -73,6 +81,8 @@ export const DEFAULT_SETTINGS: SettingsData = {
   overlayOpacity: 0.5,
   diffColormap: 'inferno',
   diffTolerance: 16,
+  recFormat: 'video',
+  recQuality: 'medium',
   favorites: [],
 }
 
@@ -94,6 +104,8 @@ const SORT_VALUES: SortKey[] = ['name', 'lastModified', 'size']
 const LAYOUT_VALUES: CompareLayout[] = ['wipe', 'side', 'overlay', 'diff']
 /** 差值热图 colormap 可选值（顺序即下拉顺序：四种必需色带在前，单一来源供设置校验/工具栏/冒烟共用） */
 export const DIFF_COLORMAP_VALUES: DiffColormap[] = ['inferno', 'gray', 'viridis', 'coolwarm']
+const REC_FORMAT_VALUES: RecFormat[] = ['video', 'gif']
+const REC_QUALITY_VALUES: RecQuality[] = ['high', 'medium', 'low']
 const THEME_VALUES: ThemeMode[] = ['dark', 'light', 'system']
 
 function clamp01(v: number, min: number, max: number): number {
@@ -140,6 +152,8 @@ function sanitize(raw: Partial<SettingsData>): SettingsData {
       const n = Number(raw.diffTolerance)
       return Number.isFinite(n) ? Math.min(128, Math.max(0, Math.round(n))) : d.diffTolerance
     })(),
+    recFormat: pick(raw.recFormat, REC_FORMAT_VALUES, d.recFormat),
+    recQuality: pick(raw.recQuality, REC_QUALITY_VALUES, d.recQuality),
     favorites: Array.isArray(raw.favorites)
       ? raw.favorites.filter(
           (f): f is FavoriteEntry =>

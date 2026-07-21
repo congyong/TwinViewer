@@ -38,7 +38,11 @@ export function useKeyboard() {
 
       // ---------- 全局 ----------
       if (key === 'escape') {
-        // 退出顺序：物理全屏 → 控件内单格全屏 → 浏览模式
+        // 退出顺序：录制配置对话框 → 物理全屏 → 控件内单格全屏 → 浏览模式
+        if (s.recPhase === 'configuring') {
+          s.cancelRecConfig()
+          return
+        }
         if (s.physicalFullscreen) {
           void s.togglePhysicalFullscreen()
           return
@@ -65,7 +69,7 @@ export function useKeyboard() {
         return
       }
       if (key === 's') {
-        // S：录制显示区开关（倒计时开始/停止，倒计时内再按取消；保存对话框中无效）
+        // S：录制显示区开关（idle→开录前配置对话框；录制中→倒计时停止；倒计时内再按取消；配置/保存对话框中无效）
         s.toggleRecord()
         return
       }

@@ -323,7 +323,7 @@ export function Toolbar() {
             size="sm"
             variant="ghost"
             className={`h-7 w-7 p-0 ${recPhase === 'recording' || recPhase === 'stopping' ? 'text-red-500' : ''}`}
-            title={recPhase === 'idle' ? '录制显示区 (S)' : recPhase === 'recording' ? '停止录制 (S)' : '录制操作 (S)'}
+            title={recPhase === 'idle' ? '录制显示区（S，先选格式画质再开录）' : recPhase === 'recording' ? '停止录制 (S)' : '录制操作 (S)'}
             data-rec-btn
             onClick={toggleRecord}
           >
