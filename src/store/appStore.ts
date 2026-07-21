@@ -379,6 +379,8 @@ export interface AppState {
 
 /** showNotice 自动消失计时器（模块级单例） */
 let noticeTimer: ReturnType<typeof setTimeout> | null = null
+/** 进行中的增量扫描计数（并发导航时指示器不提前熄灭） */
+let scanInFlight = 0
 
 /** 录制：倒计时 tick / 计时徽标 / 时长上限计时器（模块级单例） */
 let recTickTimer: ReturnType<typeof setInterval> | null = null
@@ -609,53 +611,61 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setRecursive: (v) => {
     updateSettings({ recursive: v })
     set({ recursive: v })
+    // 切换递归档位后以新口径重扫当前目录（增量去重）——此前浅扫遗漏的子树图片开递归后立即补齐
+    const { dir, currentPath } = get()
+    if (!dir) return
+    const abs = dir.dirPath
+      ? isAbsPath(currentPath)
+        ? normalizeSlashes(currentPath)
+        : currentPath === ''
+          ? normalizeSlashes(dir.dirPath)
+          : `${normalizeSlashes(dir.dirPath)}/${currentPath}`
+      : null
+    void get().scanDirIntoImages(abs, isAbsPath(currentPath) ? undefined : currentPath)
   },
-  setCurrentPath: (path) => set({ currentPath: path }),
+  setCurrentPath: (path) => {
+    const prev = get().currentPath
+    set({ currentPath: path })
+    // 第十七轮：视野切换统一触发目标目录增量扫描（按路径去重后近乎无成本）——
+    // 树点击 openTreeNode / 文件夹卡片双击 / 面包屑段点击 / navigateUp(Backspace) 全部汇聚到本入口，
+    // 修复「只有树行点击触发扫描，钻取/回退进入的根外目录从未入 images → 视图空白」的缺口
+    if (path === prev) return
+    const { dir } = get()
+    if (!dir) return
+    const abs = dir.dirPath
+      ? isAbsPath(path)
+        ? normalizeSlashes(path)
+        : path === ''
+          ? normalizeSlashes(dir.dirPath)
+          : `${normalizeSlashes(dir.dirPath)}/${path}`
+      : null
+    void get().scanDirIntoImages(abs, isAbsPath(path) ? undefined : path)
+  },
 
   openTreeNode: (relPath) => {
     const { dir } = get()
-    // 第十七轮重做（用户指定方案）：树节点点击 = 切视野 + 该目录**增量扫描**（实时生成缩略图，
-    // 已存在的跳过不更新）——取代第十六轮的「根外 → openPath 新根重扫」（整屏 loading、
-    // 重置根/勾选/槽位，高位祖先递归扫描巨量文件长时间空白，用户感知为没修好）。
-    // 根内绝对形（祖先链展开后子节点）折算相对路径；根外（祖先链等）用绝对 currentPath
-    // （scopeOk / 面包屑 / navigateUp 原生支持绝对路径）。浏览器模式树中无绝对路径节点。
+    // 第十七轮重做（用户指定方案）：树节点点击 = 切视野回浏览；增量扫描由 setCurrentPath 统一触发
+    // （与文件夹卡片双击 / 面包屑 / navigateUp 同一入口）。根内绝对形（祖先链展开后子节点）
+    // 折算相对路径；根外（祖先链等）用绝对 currentPath（scopeOk / 面包屑 / navigateUp 原生支持）。
+    // 浏览器模式树中无绝对路径节点。
     if (dir?.dirPath && isAbsPath(relPath)) {
       const root = normalizeSlashes(dir.dirPath).toLowerCase()
       const norm = normalizeSlashes(relPath)
       const normL = norm.toLowerCase()
-      if (normL === root) {
-        get().setCurrentPath('')
-        get().setViewMode('browse')
-        void get().scanDirIntoImages(norm) // 增量去重：可拾取打开后新增的文件
-      } else if (normL.startsWith(`${root}/`)) {
-        const rel = norm.slice(root.length + 1)
-        get().setCurrentPath(rel)
-        get().setViewMode('browse')
-        void get().scanDirIntoImages(norm, rel)
-      } else {
-        get().setCurrentPath(norm)
-        get().setViewMode('browse')
-        void get().scanDirIntoImages(norm)
-      }
-      return
+      if (normL === root) get().setCurrentPath('')
+      else if (normL.startsWith(`${root}/`)) get().setCurrentPath(norm.slice(root.length + 1))
+      else get().setCurrentPath(norm)
+    } else {
+      get().setCurrentPath(relPath)
     }
-    get().setCurrentPath(relPath)
     get().setViewMode('browse')
-    if (dir) {
-      // 根内相对节点：Electron 拼绝对路径；浏览器传 relPath 走句柄枚举
-      const abs = dir.dirPath
-        ? relPath === ''
-          ? normalizeSlashes(dir.dirPath)
-          : `${normalizeSlashes(dir.dirPath)}/${relPath}`
-        : null
-      void get().scanDirIntoImages(abs, relPath)
-    }
   },
 
   scanDirIntoImages: async (absPath, relPath) => {
     const provider = getFSProvider()
     const { dir, recursive } = get()
     if (!dir) return
+    scanInFlight += 1
     set({ scanning: true })
     try {
       let scanned: ImageEntry[] = []
@@ -675,14 +685,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
         }
         scanned = await provider.listImages({ name: h.name, handle: h }, recursive)
       }
-      // 去重：归一化路径已在 images 中的跳过不更新，仅追加新文件（勾选/槽位/根等状态全部保留）
-      const existing = new Set(get().images.map((e) => normalizeSlashes(e.path).toLowerCase()))
-      const fresh = scanned.filter((e) => !existing.has(normalizeSlashes(e.path).toLowerCase()))
-      if (fresh.length > 0) set((s) => ({ images: [...s.images, ...fresh] }))
+      // 去重：归一化路径已在 images 中的跳过不更新，仅追加新文件（勾选/槽位/根等状态全部保留）。
+      // 在 set updater 内现算现滤——并发扫描（快速连续切换目录）也不会重复追加
+      set((s) => {
+        const existing = new Set(s.images.map((e) => normalizeSlashes(e.path).toLowerCase()))
+        const fresh = scanned.filter((e) => !existing.has(normalizeSlashes(e.path).toLowerCase()))
+        return fresh.length > 0 ? { images: [...s.images, ...fresh] } : {}
+      })
     } catch (err) {
       get().showNotice(`目录扫描失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      set({ scanning: false })
+      scanInFlight -= 1
+      if (scanInFlight <= 0) {
+        scanInFlight = 0
+        set({ scanning: false })
+      }
     }
   },
 
@@ -767,17 +784,17 @@ export const useAppStore = create<AppState>()((set, get) => ({
     else set({ browseMode: m })
   },
 
-  // 返回上级目录：相对路径逐段回退到根（''）；祖先链绝对路径逐级向上
+  // 返回上级目录：相对路径逐段回退到根（''）；祖先链绝对路径逐级向上（经 setCurrentPath 统一触发增量扫描）
   navigateUp: () => {
     const { currentPath } = get()
     if (!currentPath) return
     if (isAbsPath(currentPath)) {
       const parent = absDirOf(currentPath)
-      if (normalizeSlashes(parent) !== normalizeSlashes(currentPath)) set({ currentPath: parent })
+      if (normalizeSlashes(parent) !== normalizeSlashes(currentPath)) get().setCurrentPath(parent)
       return
     }
     const i = currentPath.lastIndexOf('/')
-    set({ currentPath: i < 0 ? '' : currentPath.slice(0, i) })
+    get().setCurrentPath(i < 0 ? '' : currentPath.slice(0, i))
   },
 
   toggleChecked: (id) =>

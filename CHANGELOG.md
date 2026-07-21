@@ -5,6 +5,12 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+
+- **根外兄弟目录钻取后空白**（如打开 `Downloads\0717\all` 后点树中 `0616` 再双击其子文件夹）：上一轮仅树行点击触发增量扫描，**文件夹卡片双击 / 面包屑段点击 / Backspace（navigateUp）直写 `currentPath` 不触发扫描**——这些目录的图片从未进入图片列表，视图空白且之后开递归也补不上。现在视野切换（`setCurrentPath`）统一触发目标目录增量扫描，所有进入入口行为一致；切换 recursive 档位也会以新口径重扫当前目录（此前浅扫遗漏的子树立即补齐）
+
 ## [0.2.4] - 2026-07-21
 
 ### 修复

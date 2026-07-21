@@ -28,6 +28,8 @@ const SMOKE = process.env.TWINVIEW_SMOKE === '1'
 // 生产加载分支：打包后或显式 NODE_ENV=production 时加载 dist/index.html
 const LOAD_DIST = app.isPackaged || process.env.NODE_ENV === 'production'
 const SMOKE_TEST_DIR = path.resolve(__dirname, '..', '..', 'test-photos')
+// 用户真实场景镜像：打开 repro\0717\all 后点击祖先链兄弟目录 repro\0616
+const SMOKE_REPRO_DIR = path.resolve(__dirname, '..', '..', 'repro')
 const SMOKE_SHOT = path.resolve(__dirname, '..', 'smoke-home.png')
 
 // 必须在 app ready 之前注册为特权 scheme，renderer 才能 fetch/img 加载
@@ -984,6 +986,109 @@ async function runSmokeTest(win) {
       if (!ancAssert.ok) {
         clearTimeout(killer)
         return fail(`树点击增量扫描不符预期: ${JSON.stringify(ancAssert)}`)
+      }
+
+      // a.11c 前置：repro 测试资产自愈生成（镜像用户真实场景；不依赖工作区预置，缺失即从 test-photos 复制）
+      const reproAssets = [
+        ['0717/all', ['A1_red_800x600.jpg', 'A2_blue_1200x900.jpg', 'A3_green_600x900.jpg'], ''],
+        ['0616', ['B1_yellow_800x600.png', 'B2_purple_900x1200.png', 'B3_grad_1600x900.png'], ''],
+        ['0616/sub', ['S1_sub_700x500.jpg', 'S2_sub_500x700.png'], 'sub'],
+      ]
+      for (const [sub, names, srcSub] of reproAssets) {
+        const dstDir = path.join(SMOKE_REPRO_DIR, sub)
+        await fs.mkdir(dstDir, { recursive: true })
+        for (const n of names) {
+          const dst = path.join(dstDir, n)
+          try {
+            await fs.stat(dst)
+          } catch {
+            await fs.copyFile(path.join(SMOKE_TEST_DIR, srcSub, n), dst)
+          }
+        }
+      }
+
+      // a.11c) 根外兄弟目录场景固化（用户真实路径镜像；修复前缺口证据见提交信息：
+      //        文件夹卡片钻取 v2_thumbs=0、navigateUp 后 sub 内容永久缺席）：
+      //        打开 repro\0717\all → 祖先链展开 repro → 点击 0616 → 本层 3 张即显示；
+      //        双击 sub 文件夹卡片钻取 → 增量扫描补上 sub 2 张；navigateUp 回退正常；
+      //        开 recursive → 子树全量显示；重复点击去重
+      const sibAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const S = () => store.getState()
+        const out = {}
+        const norm = (p) => p.replace(/\\\\/g, '/')
+        const thumbs = () => document.querySelectorAll('[data-thumb]').length
+        const reproRoot = norm(${JSON.stringify(SMOKE_REPRO_DIR)})
+        const allDir = reproRoot + '/0717/all'
+        const sibDir = reproRoot + '/0616'
+        const drain = async () => { for (let i = 0; i < 200 && S().scanning; i++) await wait(100) }
+        await S().openPath(allDir)
+        await wait(600)
+        out.opened = S().images.length === 3
+        const ids = S().images.map((e) => e.id)
+        store.setState({ checked: [ids[0]], recursive: false, viewMode: 'browse', currentPath: '', notice: null })
+        await wait(200)
+        // 真实操作：展开 repro 祖先 → 点击兄弟 0616 行
+        const ancRow = () => document.querySelector("aside div[title='" + reproRoot + "']")
+        for (let i = 0; i < 50 && !ancRow(); i++) await wait(100)
+        out.ancestorRowFound = !!ancRow()
+        if (ancRow()) ancRow().querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        const sibRow = () => document.querySelector("aside div[title='" + sibDir + "']")
+        for (let i = 0; i < 50 && !sibRow(); i++) await wait(100)
+        out.siblingRowFound = !!sibRow()
+        if (sibRow()) sibRow().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await drain()
+        await wait(600)
+        out.clickImages = S().images.length === 6 // 3 + 0616 本层 3（浅扫不含 sub）
+        out.clickThumbs = thumbs() === 3
+        out.clickCheckedKept = S().checked.length === 1 && S().checked[0] === ids[0]
+        out.clickPathAbs = norm(S().currentPath).toLowerCase() === sibDir.toLowerCase()
+        out.folderCardShown = document.querySelectorAll('[data-folder]').length === 1 // sub 卡片
+        // 双击 sub 文件夹卡片钻取（修复前此入口不触发扫描 → 空白）
+        const subCard = document.querySelector('[data-folder]')
+        out.subCardFound = !!subCard
+        if (subCard) subCard.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+        await drain()
+        await wait(600)
+        out.drillPath = norm(S().currentPath).toLowerCase() === (sibDir + '/sub').toLowerCase()
+        out.drillImages = S().images.length === 8 // sub 2 张增量入列
+        out.drillThumbs = thumbs() === 2
+        // navigateUp 回退到 0616（修复前直写 currentPath 不扫描）
+        S().navigateUp()
+        await drain()
+        await wait(600)
+        out.upPath = norm(S().currentPath).toLowerCase() === sibDir.toLowerCase()
+        out.upImages = S().images.length === 8
+        out.upThumbs = thumbs() === 3
+        // 开 recursive：以新口径重扫当前目录（去重），视野立即可见子树 5 张
+        S().setRecursive(true)
+        await drain()
+        await wait(600)
+        out.recImages = S().images.length === 8
+        out.recThumbs = thumbs() === 5
+        // 再点树中 0616 行（currentPath 未变 → 不重扫不追加）
+        if (sibRow()) sibRow().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await drain()
+        await wait(300)
+        out.deduped = S().images.length === 8
+        // 复位：重新打开原测试根（后续断言与截图依赖 test-photos）
+        await S().openPath(${JSON.stringify(SMOKE_TEST_DIR)})
+        await wait(600)
+        out.restored = S().images.length === 10
+        store.setState({ recursive: false, checked: [], currentPath: '', notice: null })
+        await wait(200)
+        out.ok = out.opened && out.ancestorRowFound && out.siblingRowFound &&
+          out.clickImages && out.clickThumbs && out.clickCheckedKept && out.clickPathAbs && out.folderCardShown &&
+          out.subCardFound && out.drillPath && out.drillImages && out.drillThumbs &&
+          out.upPath && out.upImages && out.upThumbs &&
+          out.recImages && out.recThumbs && out.deduped && out.restored
+        return out
+      })()`)
+      console.log(`[SMOKE] 根外兄弟目录钻取: ${JSON.stringify(sibAssert)}`)
+      if (!sibAssert.ok) {
+        clearTimeout(killer)
+        return fail(`根外兄弟目录钻取不符预期: ${JSON.stringify(sibAssert)}`)
       }
 
       // a.12) 差值热图：UI 挂载（配置面板+滑块+diff canvas）+ 同图全黑 + 异图非黑 + 滑块联动 store +
