@@ -277,6 +277,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // 冒烟窗口被遮挡/失焦时 Chromium 会节流 setTimeout/raf（后台 1/min），导致 eval 卡死超时；
+      // 仅冒烟模式关闭后台节流（正式窗口保留默认省电行为）
+      ...(SMOKE ? { backgroundThrottling: false } : {}),
     },
   })
 
@@ -320,7 +323,7 @@ async function runSmokeTest(win) {
     app.exit(1)
   }
   // 硬超时保护
-  const killer = setTimeout(() => fail('冒烟测试超时（60s）'), 60000)
+  const killer = setTimeout(() => fail('冒烟测试超时（120s）'), 120000)
 
   win.webContents.once('did-finish-load', async () => {
     try {
@@ -601,6 +604,39 @@ async function runSmokeTest(win) {
         // X 交换不回归
         S().swapSlots()
         out.swapOk = S().slotA === ids[2] && S().slotB === ids[3]
+        // --- X 与左右键解耦（第十五轮修复，复现用户路径）：仅勾选 2 张占满 → ←/→ 切到 2/2（回退同图 A=B）→
+        //     按 X 仍须可见交换（解除同图：交换为「重复前一对」的反序），再按换回；全部档导航后 X 不回归 ---
+        store.setState({ checked: [idA, idB], navScope: 'checked', viewMode: 'compare', slotA: idA, slotB: idB, activeSlot: 'A', notice: null })
+        await wait(150)
+        S().navigate(1) // A 步进到与 B 同图（2/2，回退允许重复）
+        await wait(100)
+        out.xDupBefore = S().slotA === idB && S().slotB === idB
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+        await wait(150)
+        out.xDupSwap = S().slotA === idB && S().slotB === idA // 同图陷阱解除：立即可见
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+        await wait(150)
+        out.xDupSwap2 = S().slotA === idA && S().slotB === idB // 再按换回，往返均可见
+        // 全部档：导航到集合中部后 X 正常可见交换（不回归）
+        store.setState({ navScope: 'all', slotA: ids[2], slotB: ids[1], activeSlot: 'A', notice: null })
+        await wait(100)
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+        await wait(150)
+        out.xAllSwap = S().slotA === ids[1] && S().slotB === ids[2]
+        // 全屏（控件 L1 / 物理 L2）双击切源：导航产生同图后仍能 A↔B 翻转显示源（状态级；槽位内容不变）
+        store.setState({ slotA: idB, slotB: idB, fullscreenCell: 'A', physicalFullscreen: true, notice: null })
+        await wait(100)
+        S().fullscreenDblClick('A')
+        await wait(100)
+        out.fsSrcFlip = S().fullscreenCell === 'B'
+        S().fullscreenDblClick('B')
+        await wait(100)
+        out.fsSrcFlip2 = S().fullscreenCell === 'A'
+        store.setState({ fullscreenCell: null, physicalFullscreen: false })
+        // 全屏退出后 X 同样解除同图可见交换
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+        await wait(150)
+        out.fsXSwap = S().slotA === idB && S().slotB === idA
         // --- 网格：激活格步进跳过其他格占据项 ---
         const g = [ids[0], ids[1], ids[2]]
         store.setState({ viewMode: 'grid', gridIds: g, gridActiveIdx: 0, checked: [], navScope: 'all', notice: null })
@@ -620,7 +656,9 @@ async function runSmokeTest(win) {
         await wait(200)
         out.ok = out.chromeBefore.toolbar && out.chromeBefore.aside && out.fsHidden && out.fsRestored &&
           out.cmpSetup && out.checkedDupStep && out.noNotice && out.allStep && out.allStep2 &&
-          out.activeBStep && out.swapOk && out.gridSkip && out.gridDupStep
+          out.activeBStep && out.swapOk && out.gridSkip && out.gridDupStep &&
+          out.xDupBefore && out.xDupSwap && out.xDupSwap2 && out.xAllSwap &&
+          out.fsSrcFlip && out.fsSrcFlip2 && out.fsXSwap
         return out
       })()`)
       console.log(`[SMOKE] 真全屏布局+槽位导航: ${JSON.stringify(navAssert)}`)
@@ -1008,7 +1046,8 @@ async function runSmokeTest(win) {
         S().confirmRecConfig()
         await wait(150)
         store.setState({ recCountdown: 1 })
-        await wait(1600)
+        // 倒计时 tick(1s)+采集启动在负载下可能超过 1.6s：轮询等待 recording（上限 6s）
+        for (let i = 0; i < 60 && S().recPhase !== 'recording'; i++) await wait(100)
         out.afterCountdown = S().recPhase
         out.captureOk = S().recPhase === 'recording'
         if (!out.captureOk) store.setState({ recPhase: 'recording' })
@@ -1111,7 +1150,8 @@ async function runSmokeTest(win) {
         S().confirmRecConfig()
         await wait(150)
         store.setState({ recCountdown: 1 })
-        await wait(1600)
+        // 倒计时 tick(1s)+采集启动在负载下可能超过 1.6s：轮询等待 recording（上限 8s；swCaptureOk 进 ok）
+        for (let i = 0; i < 80 && S().recPhase !== 'recording'; i++) await wait(100)
         out.swCaptureOk = S().recPhase === 'recording'
         out.swInitFrames = S().recFrameCount === 0
         const rec2 = window.__twinviewRecorder

@@ -793,13 +793,25 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   swapSlots: () =>
-    set((s) => ({
-      slotA: s.slotB,
-      slotB: s.slotA,
-      transformA: s.transformB,
-      transformB: s.transformA,
-      activeSlot: s.activeSlot === 'A' ? 'B' : 'A',
-    })),
+    set((s) => {
+      let a = s.slotB
+      let b = s.slotA
+      // X 与左右键解耦（第十五轮修复）：导航回退允许 A/B 同图（仅 2 张占满时 ←/→ 步进到同图），
+      // 同图下纯交换无视觉差异、用户感知为「X 失效」。此时把交换后的 B 槽回退到导航集合内最近的异图——
+      // 结果等价于「重复前的那一对交换方向」，保证任何导航状态下 X 都可见生效；
+      // 集合内真的只有 1 张图时才保持同图（状态仍真实交换 + activeSlot 翻转）
+      if (a !== null && a === b) {
+        const alt = getNavList(s).find((e) => e.id !== a)?.id ?? null
+        if (alt) b = alt
+      }
+      return {
+        slotA: a,
+        slotB: b,
+        transformA: s.transformB,
+        transformB: s.transformA,
+        activeSlot: s.activeSlot === 'A' ? 'B' : 'A',
+      }
+    }),
 
   toggleActiveSlot: () => set((s) => ({ activeSlot: s.activeSlot === 'A' ? 'B' : 'A' })),
 

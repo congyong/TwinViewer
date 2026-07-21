@@ -83,6 +83,8 @@
 | C | GIF 切换抓帧录制中：手动补抓一帧（徽标帧数 +1） |
 | ? | 打开 / 关闭快捷键帮助 |
 
+> X 交换与 ←/→ 导航完全解耦：若导航恰好让 A/B 指向同一张图（例如只勾选 2 张时走到 2/2），X 会自动把 B 槽换为集合内最近的另一张图，保证任何导航状态下交换都可见生效。
+
 ## 快速开始
 
 ```bash
@@ -110,7 +112,7 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / **差值热图（配置面板仅 diff 可见+容差滑块联动 store、diff canvas 挂载、同图全黑、异图非黑、单元级合成位图验证容差单调抑制/置黑阈值、四种必需 colormap inferno/gray/viridis/coolwarm 齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差、**直方图均衡默认开+面板开关联动+max 显示、8 灰级差合成图均衡开高亮 >0.7 / 关 <0.1、全同图仍全黑**）** / **录制状态机（先配置后开录 + 立即停止：S 出配置对话框、选 GIF/低画质并断言持久化、取消/Esc 回 idle、再开记住上次选择、确认进 starting 倒计时、采集（headless 真实采集成功）、S 立即停止无 stopping 中间态、saving 自动弹系统保存（冒烟模拟取消）、保存参数与开录前一致、放弃回 idle；GIF 画质单元：gif-core 档位计划/尺寸上限/字节预算/合成帧编码合法；GIF 切换抓帧端到端：默认方式 switch + 默认帧间 0.5s、配置框帧间时长输入联动、switch 模式开录首帧不自抓、两次槽位切换 + C 手动帧 = 3 帧且徽标同步、帧尺寸 = 显示区设备像素原尺寸（≤2560 封顶）、立即停止、编码 GIF 合法且 GCE delay 全为固定帧间时长（设 0.8s → 全 80×1/100s）、放弃回 idle）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）+ X 交换解耦断言（同图后 X 自动换 B 槽可见生效、连续两次 X 回到原图、全屏 L1/L2 下 X 同样生效、L3 双击切源状态级翻转）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / **差值热图（配置面板仅 diff 可见+容差滑块联动 store、diff canvas 挂载、同图全黑、异图非黑、单元级合成位图验证容差单调抑制/置黑阈值、四种必需 colormap inferno/gray/viridis/coolwarm 齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差、**直方图均衡默认开+面板开关联动+max 显示、8 灰级差合成图均衡开高亮 >0.7 / 关 <0.1、全同图仍全黑**）** / **录制状态机（先配置后开录 + 立即停止：S 出配置对话框、选 GIF/低画质并断言持久化、取消/Esc 回 idle、再开记住上次选择、确认进 starting 倒计时、采集（headless 真实采集成功）、S 立即停止无 stopping 中间态、saving 自动弹系统保存（冒烟模拟取消）、保存参数与开录前一致、放弃回 idle；GIF 画质单元：gif-core 档位计划/尺寸上限/字节预算/合成帧编码合法；GIF 切换抓帧端到端：默认方式 switch + 默认帧间 0.5s、配置框帧间时长输入联动、switch 模式开录首帧不自抓、两次槽位切换 + C 手动帧 = 3 帧且徽标同步、帧尺寸 = 显示区设备像素原尺寸（≤2560 封顶）、立即停止、编码 GIF 合法且 GCE delay 全为固定帧间时长（设 0.8s → 全 80×1/100s）、放弃回 idle）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
 
 ## CLI 与集成
 
