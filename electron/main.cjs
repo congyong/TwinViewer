@@ -17,6 +17,10 @@ const IMAGE_EXTS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.svg', '.ico', '.tif', '.tiff',
 ])
 
+// 递归扫描时跳过的目录：依赖/版本库目录体量大且无用户图片，
+// 祖先链点击打开上级目录（如代码工作区）时不跳过会遍历数十万个文件导致长时间无响应
+const SCAN_SKIP_DIRS = new Set(['node_modules', '.git'])
+
 const DEV_URL = process.env.TWINVIEW_DEV_URL || 'http://localhost:7100'
 
 // 冒烟测试模式：TWINVIEW_SMOKE=1 时自动验证扫描 / 截图 / 渲染进程后退出
@@ -191,7 +195,7 @@ async function scanDirectory(dir, recursive, out = []) {
     const full = path.join(dir, ent.name)
     try {
       if (ent.isDirectory()) {
-        if (recursive) await scanDirectory(full, true, out)
+        if (recursive && !SCAN_SKIP_DIRS.has(ent.name.toLowerCase())) await scanDirectory(full, true, out)
       } else if (ent.isFile() && IMAGE_EXTS.has(path.extname(ent.name).toLowerCase())) {
         const stat = await fs.stat(full)
         out.push({
@@ -920,6 +924,56 @@ async function runSmokeTest(win) {
       if (!treeAssert.ok) {
         clearTimeout(killer)
         return fail(`树点击回浏览不符预期: ${JSON.stringify(treeAssert)}`)
+      }
+
+      // a.11b) 祖先链点击（本轮修复，复现证据见提交信息：旧行为递归关 0 张 / 递归开仅原子树 10 张）：
+      //        根外祖先节点 → openTreeNode 走 openPath 扫描为新根，网格/树随之更新；范围内节点保持快速过滤不重扫
+      const ancAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const S = () => store.getState()
+        const out = {}
+        const root = (S().dir.dirPath || '').replace(/\\\\/g, '/')
+        const parent = root.slice(0, root.lastIndexOf('/'))
+        const before = S().images.length
+        out.before = before
+        // 真实 DOM 点击祖先链节点行（title = 绝对 relPath）→ TreeNode → openTreeNode
+        const row = document.querySelector("aside div[title='" + parent + "']")
+        out.ancestorRow = !!row
+        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        // 扫描上级目录（扫描器已跳过 node_modules/.git）：轮询 loading 完成且 images 增长（≤60s）
+        for (let i = 0; i < 600 && (S().loading || S().images.length <= before); i++) await wait(100)
+        out.scanGrew = S().images.length > before
+        out.after = S().images.length
+        out.newRoot = (S().dir.dirPath || '').replace(/\\\\/g, '/').toLowerCase() === parent.toLowerCase()
+        out.atRootPath = S().currentPath === '' && S().viewMode === 'browse'
+        await wait(600)
+        out.thumbsShown = document.querySelectorAll('[data-thumb]').length > 0
+        // 树数据随之更新：新根子目录懒加载后应同时包含 twinview 与 test-photos
+        for (let i = 0; i < 100 && S().treeChildren[''] === undefined; i++) await wait(100)
+        const names = (S().treeChildren[''] || []).map((n) => n.name)
+        out.twinviewInTree = names.includes('twinview') && names.includes('test-photos')
+        // 已扫描范围内节点 = 快速视野过滤（不重扫）：相对路径点击 → currentPath 切换且 images 不变
+        const total = S().images.length
+        S().openTreeNode('test-photos')
+        await wait(300)
+        out.inRangeFast = S().currentPath === 'test-photos' && S().images.length === total && !S().loading
+        // 根内绝对形（祖先链展开后子节点以绝对路径出现）→ 折算相对路径快速过滤，不重扫
+        S().openTreeNode(parent + '/test-photos/sub')
+        await wait(300)
+        out.absInRangeFast = S().currentPath === 'test-photos/sub' && S().images.length === total
+        // 复位：重新打开原测试根（不干扰后续断言与截图）
+        await S().openPath(root)
+        await wait(400)
+        out.restored = S().images.length === before
+        out.ok = out.ancestorRow && out.scanGrew && out.newRoot && out.atRootPath &&
+          out.thumbsShown && out.twinviewInTree && out.inRangeFast && out.absInRangeFast && out.restored
+        return out
+      })()`)
+      console.log(`[SMOKE] 祖先链点击扫描: ${JSON.stringify(ancAssert)}`)
+      if (!ancAssert.ok) {
+        clearTimeout(killer)
+        return fail(`祖先链点击扫描不符预期: ${JSON.stringify(ancAssert)}`)
       }
 
       // a.12) 差值热图：UI 挂载（配置面板+滑块+diff canvas）+ 同图全黑 + 异图非黑 + 滑块联动 store +

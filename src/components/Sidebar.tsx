@@ -23,8 +23,7 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
   const children = useAppStore((s) => s.treeChildren[relPath])
   const currentPath = useAppStore((s) => s.currentPath)
   const toggleTreeNode = useAppStore((s) => s.toggleTreeNode)
-  const setCurrentPath = useAppStore((s) => s.setCurrentPath)
-  const setViewMode = useAppStore((s) => s.setViewMode)
+  const openTreeNode = useAppStore((s) => s.openTreeNode)
   const isCurrent = currentPath === relPath
 
   return (
@@ -36,9 +35,8 @@ function TreeNode({ name, relPath, depth, imageCount, hasChildren }: DirNode & {
         )}
         style={{ paddingLeft: depth * 12 + 2 }}
         onClick={() => {
-          // 点树节点 = 看该目录的网格：任何视图下都切回浏览模式（浏览中点击行为不变）
-          setCurrentPath(relPath)
-          setViewMode('browse')
+          // 点树节点 = 看该目录的网格：已扫描范围内快速过滤；根外（祖先链）由 openTreeNode 走扫描打开
+          openTreeNode(relPath)
         }}
         title={relPath === '' ? '根目录' : relPath}
       >

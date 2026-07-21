@@ -283,6 +283,8 @@ export interface AppState {
   applyCliOpen: (payload: CliOpenPayload) => Promise<void>
   setRecursive: (v: boolean) => void
   setCurrentPath: (path: string) => void
+  /** 树节点点击统一入口：已扫描范围内 = 快速视野过滤；根外（祖先链等绝对路径）= 打开/扫描为新根 */
+  openTreeNode: (relPath: string) => void
   toggleTreeNode: (relPath: string) => void
   loadTreeChildren: (relPath: string) => Promise<void>
   loadAncestors: () => Promise<void>
@@ -604,6 +606,31 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ recursive: v })
   },
   setCurrentPath: (path) => set({ currentPath: path }),
+
+  openTreeNode: (relPath) => {
+    const { dir } = get()
+    // 祖先链 / 树中根外节点（绝对 relPath）修复：仅 setCurrentPath 做视野过滤时，
+    // 非递归下一张都看不到、递归下也只有原子树图片——根外目录的图片从未进入 images。
+    // 这里改为：根外 → 复用 openPath 扫描打开为新根；根内（含根本身绝对形）→ 折算相对路径快速过滤不重扫。
+    // 浏览器模式 dir.dirPath 为空且树中无绝对路径节点，天然不受影响。
+    if (dir?.dirPath && isAbsPath(relPath)) {
+      const root = normalizeSlashes(dir.dirPath).toLowerCase()
+      const norm = normalizeSlashes(relPath)
+      const normL = norm.toLowerCase()
+      if (normL === root) {
+        get().setCurrentPath('')
+        get().setViewMode('browse')
+      } else if (normL.startsWith(`${root}/`)) {
+        get().setCurrentPath(norm.slice(root.length + 1))
+        get().setViewMode('browse')
+      } else {
+        void get().openPath(norm)
+      }
+      return
+    }
+    get().setCurrentPath(relPath)
+    get().setViewMode('browse')
+  },
 
   toggleTreeNode: (relPath) => {
     const expanded = get().treeExpanded[relPath] ?? relPath === ''
