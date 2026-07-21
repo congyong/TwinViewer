@@ -24,6 +24,7 @@ export default function App() {
   const recursive = useAppStore((s) => s.recursive)
   const loading = useAppStore((s) => s.loading)
   const loadError = useAppStore((s) => s.loadError)
+  const scanning = useAppStore((s) => s.scanning)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const filmstripOpen = useAppStore((s) => s.filmstripOpen)
   const formatFilter = useAppStore((s) => s.formatFilter)
@@ -118,6 +119,12 @@ export default function App() {
       {notice && (
         <div data-notice className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded bg-black/80 px-3 py-1.5 text-xs text-neutral-200 shadow-lg">
           {notice}
+        </div>
+      )}
+      {/* 树节点点击增量扫描的轻量提示（不阻断网格，扫描结束自动消失） */}
+      {scanning && (
+        <div data-scanning className="fixed bottom-6 right-6 z-40 rounded bg-black/70 px-3 py-1.5 text-xs text-neutral-200 shadow-lg">
+          正在扫描目录…
         </div>
       )}
       <HelpOverlay />

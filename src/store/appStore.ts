@@ -200,6 +200,8 @@ export interface AppState {
   openFolderDialogOpen: boolean
   /** 一次性操作提示（如对比导航无可切换项），3s 自动消失 */
   notice: string | null
+  /** 树节点点击触发的增量扫描进行中（轻量提示，不阻断网格） */
+  scanning: boolean
   recursive: boolean
   images: ImageEntry[]
   currentPath: string
@@ -283,8 +285,10 @@ export interface AppState {
   applyCliOpen: (payload: CliOpenPayload) => Promise<void>
   setRecursive: (v: boolean) => void
   setCurrentPath: (path: string) => void
-  /** 树节点点击统一入口：已扫描范围内 = 快速视野过滤；根外（祖先链等绝对路径）= 打开/扫描为新根 */
+  /** 树节点点击统一入口：切换视野回浏览 + 对该目录增量扫描（已存在的跳过，新文件追加，状态不重置） */
   openTreeNode: (relPath: string) => void
+  /** 增量扫描某目录并追加进 images（按归一化路径去重；Electron 按绝对路径，浏览器按根内相对 relPath 句柄枚举；失败 toast） */
+  scanDirIntoImages: (absPath: string | null, relPath?: string) => Promise<void>
   toggleTreeNode: (relPath: string) => void
   loadTreeChildren: (relPath: string) => Promise<void>
   loadAncestors: () => Promise<void>
@@ -408,6 +412,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   loadError: null,
   openFolderDialogOpen: false,
   notice: null,
+  scanning: false,
   recursive: settings.recursive,
   images: [],
   currentPath: '',
@@ -609,10 +614,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   openTreeNode: (relPath) => {
     const { dir } = get()
-    // 祖先链 / 树中根外节点（绝对 relPath）修复：仅 setCurrentPath 做视野过滤时，
-    // 非递归下一张都看不到、递归下也只有原子树图片——根外目录的图片从未进入 images。
-    // 这里改为：根外 → 复用 openPath 扫描打开为新根；根内（含根本身绝对形）→ 折算相对路径快速过滤不重扫。
-    // 浏览器模式 dir.dirPath 为空且树中无绝对路径节点，天然不受影响。
+    // 第十七轮重做（用户指定方案）：树节点点击 = 切视野 + 该目录**增量扫描**（实时生成缩略图，
+    // 已存在的跳过不更新）——取代第十六轮的「根外 → openPath 新根重扫」（整屏 loading、
+    // 重置根/勾选/槽位，高位祖先递归扫描巨量文件长时间空白，用户感知为没修好）。
+    // 根内绝对形（祖先链展开后子节点）折算相对路径；根外（祖先链等）用绝对 currentPath
+    // （scopeOk / 面包屑 / navigateUp 原生支持绝对路径）。浏览器模式树中无绝对路径节点。
     if (dir?.dirPath && isAbsPath(relPath)) {
       const root = normalizeSlashes(dir.dirPath).toLowerCase()
       const norm = normalizeSlashes(relPath)
@@ -620,16 +626,64 @@ export const useAppStore = create<AppState>()((set, get) => ({
       if (normL === root) {
         get().setCurrentPath('')
         get().setViewMode('browse')
+        void get().scanDirIntoImages(norm) // 增量去重：可拾取打开后新增的文件
       } else if (normL.startsWith(`${root}/`)) {
-        get().setCurrentPath(norm.slice(root.length + 1))
+        const rel = norm.slice(root.length + 1)
+        get().setCurrentPath(rel)
         get().setViewMode('browse')
+        void get().scanDirIntoImages(norm, rel)
       } else {
-        void get().openPath(norm)
+        get().setCurrentPath(norm)
+        get().setViewMode('browse')
+        void get().scanDirIntoImages(norm)
       }
       return
     }
     get().setCurrentPath(relPath)
     get().setViewMode('browse')
+    if (dir) {
+      // 根内相对节点：Electron 拼绝对路径；浏览器传 relPath 走句柄枚举
+      const abs = dir.dirPath
+        ? relPath === ''
+          ? normalizeSlashes(dir.dirPath)
+          : `${normalizeSlashes(dir.dirPath)}/${relPath}`
+        : null
+      void get().scanDirIntoImages(abs, relPath)
+    }
+  },
+
+  scanDirIntoImages: async (absPath, relPath) => {
+    const provider = getFSProvider()
+    const { dir, recursive } = get()
+    if (!dir) return
+    set({ scanning: true })
+    try {
+      let scanned: ImageEntry[] = []
+      if (provider.kind === 'electron') {
+        // Electron：scan-directory IPC（recursive 开关决定是否含子树；主进程跳过 node_modules/.git）
+        if (!absPath || !provider.scanPath) return
+        scanned = (await provider.scanPath(absPath, recursive)).images
+      } else {
+        // 浏览器 FS Access：仅根内节点（树中本无根外节点），按 relPath 逐段解析子目录句柄；
+        // webkitdirectory 回退（dir.files）打开时已全量递归在列表中，无可增量
+        if (!dir.handle) return
+        let h: FileSystemDirectoryHandle = dir.handle
+        if (relPath) {
+          for (const seg of relPath.split('/')) {
+            h = await h.getDirectoryHandle(seg)
+          }
+        }
+        scanned = await provider.listImages({ name: h.name, handle: h }, recursive)
+      }
+      // 去重：归一化路径已在 images 中的跳过不更新，仅追加新文件（勾选/槽位/根等状态全部保留）
+      const existing = new Set(get().images.map((e) => normalizeSlashes(e.path).toLowerCase()))
+      const fresh = scanned.filter((e) => !existing.has(normalizeSlashes(e.path).toLowerCase()))
+      if (fresh.length > 0) set((s) => ({ images: [...s.images, ...fresh] }))
+    } catch (err) {
+      get().showNotice(`目录扫描失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      set({ scanning: false })
+    }
   },
 
   toggleTreeNode: (relPath) => {

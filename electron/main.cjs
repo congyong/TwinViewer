@@ -926,8 +926,9 @@ async function runSmokeTest(win) {
         return fail(`树点击回浏览不符预期: ${JSON.stringify(treeAssert)}`)
       }
 
-      // a.11b) 祖先链点击（本轮修复，复现证据见提交信息：旧行为递归关 0 张 / 递归开仅原子树 10 张）：
-      //        根外祖先节点 → openTreeNode 走 openPath 扫描为新根，网格/树随之更新；范围内节点保持快速过滤不重扫
+      // a.11b) 树点击增量扫描（第十七轮重做；旧新根重扫方案复现证据见提交信息：整屏 loading+根重置+勾选清空）：
+      //        点击祖先 workspace 节点 → currentPath 切为绝对路径、该目录增量扫描追加进 images
+      //        （根不重置、勾选保留）、网格缩略图 >0；重复点击去重不追加；根内节点增量全去重
       const ancAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
         const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -935,45 +936,54 @@ async function runSmokeTest(win) {
         const out = {}
         const root = (S().dir.dirPath || '').replace(/\\\\/g, '/')
         const parent = root.slice(0, root.lastIndexOf('/'))
-        const before = S().images.length
+        const origImages = S().images
+        const before = origImages.length
         out.before = before
-        // 真实 DOM 点击祖先链节点行（title = 绝对 relPath）→ TreeNode → openTreeNode
+        const ids = origImages.map((e) => e.id)
+        // 预置勾选（增量方案必须保留状态；旧 openPath 方案会清空）
+        store.setState({ checked: [ids[0], ids[1]], recursive: true, viewMode: 'browse', currentPath: '', notice: null })
+        await wait(200)
+        // 真实 DOM 点击祖先链节点行（title = 绝对 relPath）→ TreeNode → openTreeNode → 增量扫描
         const row = document.querySelector("aside div[title='" + parent + "']")
         out.ancestorRow = !!row
         if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        // 扫描上级目录（扫描器已跳过 node_modules/.git）：轮询 loading 完成且 images 增长（≤60s）
-        for (let i = 0; i < 600 && (S().loading || S().images.length <= before); i++) await wait(100)
+        // 增量扫描（recursive 含子树，主进程跳过 node_modules/.git）：轮询 images 增长且扫描结束（≤60s）
+        for (let i = 0; i < 600 && (S().scanning || S().images.length <= before); i++) await wait(100)
         out.scanGrew = S().images.length > before
         out.after = S().images.length
-        out.newRoot = (S().dir.dirPath || '').replace(/\\\\/g, '/').toLowerCase() === parent.toLowerCase()
-        out.atRootPath = S().currentPath === '' && S().viewMode === 'browse'
+        out.rootKept = (S().dir.dirPath || '').replace(/\\\\/g, '/').toLowerCase() === root.toLowerCase() // 根不重置
+        out.checkedKept = S().checked.length === 2 && S().checked[0] === ids[0] // 勾选保留
+        out.pathIsAbs = S().currentPath.replace(/\\\\/g, '/').toLowerCase() === parent.toLowerCase() // 绝对路径视野
         await wait(600)
         out.thumbsShown = document.querySelectorAll('[data-thumb]').length > 0
-        // 树数据随之更新：新根子目录懒加载后应同时包含 twinview 与 test-photos
-        for (let i = 0; i < 100 && S().treeChildren[''] === undefined; i++) await wait(100)
-        const names = (S().treeChildren[''] || []).map((n) => n.name)
-        out.twinviewInTree = names.includes('twinview') && names.includes('test-photos')
-        // 已扫描范围内节点 = 快速视野过滤（不重扫）：相对路径点击 → currentPath 切换且 images 不变
+        // 去重：再点同一节点 → 已存在不更新、不重复追加
         const total = S().images.length
+        S().openTreeNode(parent)
+        for (let i = 0; i < 600 && S().scanning; i++) await wait(100)
+        await wait(300)
+        out.deduped = S().images.length === total
+        // 根内相对节点：快速过滤 + 增量扫描全部去重（images 不变）
         S().openTreeNode('test-photos')
+        for (let i = 0; i < 600 && S().scanning; i++) await wait(100)
         await wait(300)
-        out.inRangeFast = S().currentPath === 'test-photos' && S().images.length === total && !S().loading
-        // 根内绝对形（祖先链展开后子节点以绝对路径出现）→ 折算相对路径快速过滤，不重扫
+        out.inRangeDedup = S().currentPath === 'test-photos' && S().images.length === total
+        // 根内绝对形（祖先链展开子节点）→ 折算相对路径 + 去重（根 = test-photos，故 rel = 'sub'）
         S().openTreeNode(parent + '/test-photos/sub')
+        for (let i = 0; i < 600 && S().scanning; i++) await wait(100)
         await wait(300)
-        out.absInRangeFast = S().currentPath === 'test-photos/sub' && S().images.length === total
-        // 复位：重新打开原测试根（不干扰后续断言与截图）
-        await S().openPath(root)
-        await wait(400)
+        out.absInRangeRel = S().currentPath === 'sub' && S().images.length === total
+        // 复位：恢复原 images 与视野（不干扰后续断言与截图）
+        store.setState({ images: origImages, checked: [], currentPath: '', recursive: false, notice: null })
+        await wait(300)
         out.restored = S().images.length === before
-        out.ok = out.ancestorRow && out.scanGrew && out.newRoot && out.atRootPath &&
-          out.thumbsShown && out.twinviewInTree && out.inRangeFast && out.absInRangeFast && out.restored
+        out.ok = out.ancestorRow && out.scanGrew && out.rootKept && out.checkedKept && out.pathIsAbs &&
+          out.thumbsShown && out.deduped && out.inRangeDedup && out.absInRangeRel && out.restored
         return out
       })()`)
-      console.log(`[SMOKE] 祖先链点击扫描: ${JSON.stringify(ancAssert)}`)
+      console.log(`[SMOKE] 树点击增量扫描: ${JSON.stringify(ancAssert)}`)
       if (!ancAssert.ok) {
         clearTimeout(killer)
-        return fail(`祖先链点击扫描不符预期: ${JSON.stringify(ancAssert)}`)
+        return fail(`树点击增量扫描不符预期: ${JSON.stringify(ancAssert)}`)
       }
 
       // a.12) 差值热图：UI 挂载（配置面板+滑块+diff canvas）+ 同图全黑 + 异图非黑 + 滑块联动 store +
