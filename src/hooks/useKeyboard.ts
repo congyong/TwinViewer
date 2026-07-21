@@ -73,6 +73,11 @@ export function useKeyboard() {
         s.toggleRecord()
         return
       }
+      if (key === 'c') {
+        // C：GIF 切换抓帧模式下手动补抓当前帧（画面没变也能抓；其余场景无操作）
+        if (s.recPhase === 'recording' && s.recFormat === 'gif' && s.recGifMode === 'switch') s.grabGifFrame()
+        return
+      }
       if (key === 'r') {
         if (s.viewMode !== 'browse') {
           s.rotateCurrent(1)

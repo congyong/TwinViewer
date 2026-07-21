@@ -923,6 +923,7 @@ async function runSmokeTest(win) {
         const out = {}
         const S = () => store.getState()
         const click = (sel) => document.querySelector(sel)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        const ids = S().images.map((e) => e.id)
         store.setState({ viewMode: 'single', currentId: S().images[0].id, fullscreenCell: null, physicalFullscreen: false })
         S().setRecFormat('video'); S().setRecQuality('medium') // 复位默认（冒烟 profile 可能残留上次运行值）
         await wait(300)
@@ -1057,12 +1058,79 @@ async function runSmokeTest(win) {
         store.setState({ viewMode: 'browse' })
         S().setViewMode('browse')
         await wait(200)
+        // a.13c) GIF 切换抓帧：switch 模式开录（首帧不自抓=0）→ 两次 slot 切换 + C 手动帧（=3 帧）→
+        //       全分辨率（帧尺寸=显示区设备像素原尺寸，仅 >2560 宽封顶）→ 立即停止 → 编码解析 GCE delay 非均匀 → 放弃回 idle
+        //       注意：断言必须用 window.__twinviewRecorder（store 同模块实例）；动态 import 路径与 '@/' 别名不同源会拿到另一份会话单例
+        S().setRecFormat('gif'); S().setRecQuality('medium'); S().setRecGifMode('switch')
+        store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', fullscreenCell: null, physicalFullscreen: false })
+        await wait(500)
+        S().toggleRecord()
+        await wait(150)
+        out.swConfigMode = S().recPhase === 'configuring' && !!document.querySelector('[data-rec-gifmode="switch"]')
+        S().confirmRecConfig()
+        await wait(150)
+        store.setState({ recCountdown: 1 })
+        await wait(1600)
+        out.swCaptureOk = S().recPhase === 'recording'
+        out.swInitFrames = S().recFrameCount === 0
+        const rec2 = window.__twinviewRecorder
+        // 两次 slot 切换（间隔不等，供 delay 非均匀断言；订阅延迟 400ms 去抖抓帧）
+        store.setState({ slotA: ids[2] })
+        await wait(650)
+        store.setState({ slotB: ids[3] })
+        await wait(950)
+        // C 手动补帧（画面没变也抓）
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }))
+        await wait(200)
+        out.swFrames = S().recFrameCount === 3
+        const badge = document.querySelector('[data-rec-frame-count]')
+        out.swBadge = !!badge && badge.textContent.includes('3')
+        // 全分辨率：帧尺寸 = <main> 显示区设备像素原尺寸（scale=视频宽/窗口宽≈dpr，>2560 宽才封顶；容差 2px 取整）
+        const swInfo = rec2.gifSessionInfo()
+        const mRect = document.querySelector('main').getBoundingClientRect()
+        const swScale2 = (window.devicePixelRatio || 1)
+        const expW = Math.min(2560, Math.round(mRect.width * swScale2))
+        const expH = Math.round(mRect.height * swScale2)
+        out.swDims = swInfo ? [swInfo.w, swInfo.h] : null
+        out.swExpDims = [expW, expH]
+        out.swFullRes = !!swInfo && swInfo.mode === 'switch' && swInfo.w > 0 && swInfo.w <= 2560 &&
+          Math.abs(swInfo.w - expW) <= 2 && Math.abs(swInfo.h - expH) <= 2
+        // 立即停止 → saving（自动保存被冒烟 IPC 模拟取消留 saving，会话仍在可自取编码验证）
+        S().toggleRecord()
+        for (let i = 0; i < 40; i++) { if (S().recPhase !== 'recording') break; await wait(50) }
+        out.swAfterStop = S().recPhase
+        try {
+          const swBlob = await rec2.encodeGif('medium')
+          const swBuf = new Uint8Array(await swBlob.arrayBuffer())
+          out.swGifMagic = swBuf[0] === 0x47 && swBuf[1] === 0x49 && swBuf[2] === 0x46
+          // 解析 GCE（21 F9 04 packed delayLo delayHi）delay（1/100s）：≥3 帧且非均匀
+          const delays = []
+          for (let i = 0; i + 6 < swBuf.length; i++) {
+            if (swBuf[i] === 0x21 && swBuf[i + 1] === 0xF9 && swBuf[i + 2] === 0x04) delays.push(swBuf[i + 4] | (swBuf[i + 5] << 8))
+          }
+          out.swDelays = delays
+          out.swDelayNonUniform = delays.length >= 3 && new Set(delays).size >= 2
+        } catch (e) {
+          out.swEncErr = String((e && e.message) || e)
+          out.swGifMagic = false
+          out.swDelayNonUniform = false
+        }
+        // 放弃 → idle；复位配置
+        click('[data-rec-discard]')
+        await wait(200)
+        out.swDiscarded = S().recPhase === 'idle'
+        S().setRecGifMode('continuous'); S().setRecFormat('video'); S().setRecQuality('medium')
+        store.setState({ viewMode: 'browse' })
+        S().setViewMode('browse')
+        await wait(200)
         out.ok = out.btnShown && out.configPhase && out.configShown && out.formatBtns && out.qualityBtns &&
           out.defaults && out.picked && out.persisted && out.cancelConfig && out.remembered && out.escCancel &&
           out.startingPhase && out.pillShown && out.cancelStart &&
           out.noStopping && out.stopImmediate &&
           out.paramsKept && out.dialogShown && out.saveParamsShown && out.noReask && out.discarded &&
-          out.planTiers && out.planDimsCap && out.planEffFrames && out.gifEncodes
+          out.planTiers && out.planDimsCap && out.planEffFrames && out.gifEncodes &&
+          out.swConfigMode && out.swCaptureOk && out.swInitFrames && out.swFrames && out.swBadge &&
+          out.swFullRes && out.swGifMagic && out.swDelayNonUniform && out.swDiscarded
         return out
       })()`)
       console.log(`[SMOKE] 录制状态机: ${JSON.stringify(recAssert)}`)

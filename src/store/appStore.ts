@@ -21,6 +21,7 @@ import type {
   FavoriteEntry,
   NavScope,
   RecFormat,
+  RecGifMode,
   ResampleMode,
   SortKey,
   ThemeMode,
@@ -31,14 +32,16 @@ import {
   discardCapture,
   encodeGif,
   gifFrameCount,
+  grabFrame,
   startCapture,
   stopCapture,
   REC_MAX_SECONDS,
   type RecQuality,
 } from '@/lib/recorder'
+import * as recorderNs from '@/lib/recorder'
 
 export type ViewMode = 'browse' | 'single' | 'compare' | 'grid'
-export type { BrowseMode, CompareLayout, DiffColormap, NavScope, RecFormat, ResampleMode, SortKey, ThemeMode }
+export type { BrowseMode, CompareLayout, DiffColormap, NavScope, RecFormat, RecGifMode, ResampleMode, SortKey, ThemeMode }
 export type { RecQuality } from '@/lib/recorder'
 export type GridLayout = 'auto' | '1x2' | '2x1' | '2x2' | '3x2' | '2x3' | '3x3'
 export type ProviderKind = 'browser' | 'electron'
@@ -258,6 +261,10 @@ export interface AppState {
   /** 开录前选择的格式/画质（持久化，取上次选择；保存阶段不再询问） */
   recFormat: RecFormat
   recQuality: RecQuality
+  /** GIF 抓帧方式（持久化）：连续采样 / 切换抓帧（事件驱动全分辨率） */
+  recGifMode: RecGifMode
+  /** 切换抓帧模式：已抓帧数（徽标显示；连续/视频模式恒 0） */
+  recFrameCount: number
 
   openDirectory: () => Promise<void>
   openPath: (path: string) => Promise<void>
@@ -313,6 +320,9 @@ export interface AppState {
   finalizeCapture: () => Promise<void>
   setRecFormat: (f: RecFormat) => void
   setRecQuality: (q: RecQuality) => void
+  setRecGifMode: (m: RecGifMode) => void
+  /** GIF 切换抓帧：手动补抓当前帧（C 键；无会话/非切换模式为 no-op） */
+  grabGifFrame: () => void
   saveRecording: () => Promise<void>
   cancelSave: () => void
   /** 视图切换 / 卸载：录制中一律停止并释放资源 */
@@ -358,6 +368,17 @@ let noticeTimer: ReturnType<typeof setTimeout> | null = null
 let recTickTimer: ReturnType<typeof setInterval> | null = null
 let recElapsedTimer: ReturnType<typeof setInterval> | null = null
 let recMaxTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * GIF 切换抓帧事件源：当前显示图像签名（单图 currentId / 对比 slotA·slotB / 网格 gridIds /
+ * 全屏显示源 fullscreenCell——L3 双击切 A/B 即改它）。wipe 分割线、缩放平移等不含在内。
+ */
+function gifSig(s: { currentId: string | null; slotA: string | null; slotB: string | null; gridIds: string[]; fullscreenCell: string | null }): string {
+  return `${s.currentId}|${s.slotA}|${s.slotB}|${s.gridIds.join(',')}|${s.fullscreenCell}`
+}
+let gifSwitchSig = ''
+/** 切图后延迟抓帧的定时器（连续变化只抓最后一次） */
+let gifGrabTimer: ReturnType<typeof setTimeout> | null = null
 
 function clearRecTimers(): void {
   if (recTickTimer !== null) clearInterval(recTickTimer)
@@ -430,6 +451,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   recBlob: null,
   recFormat: settings.recFormat,
   recQuality: settings.recQuality,
+  recGifMode: settings.recGifMode,
+  recFrameCount: 0,
 
   openDirectory: async () => {
     const provider = getFSProvider()
@@ -959,8 +982,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   beginCapture: async () => {
     try {
-      const { mime } = await startCapture(get().recQuality)
-      set({ recPhase: 'recording', recCountdown: 0, recMime: mime, recElapsed: 0 })
+      // GIF 才收帧（按开录前抓帧方式）；视频格式传 'none' 不收集（保存不再换格式，省去无谓帧采集开销）
+      const gifMode = get().recFormat === 'gif' ? get().recGifMode : 'none'
+      const { mime } = await startCapture(get().recQuality, gifMode)
+      gifSwitchSig = gifSig(get()) // 切换抓帧：事件签名基线（录制期间的图像变化相对此刻判定）
+      set({ recPhase: 'recording', recCountdown: 0, recMime: mime, recElapsed: 0, recFrameCount: 0 })
       recElapsedTimer = setInterval(() => set({ recElapsed: get().recElapsed + 1 }), 1000)
       recMaxTimer = setTimeout(() => {
         if (get().recPhase === 'recording') {
@@ -979,6 +1005,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
     if (recMaxTimer !== null) clearTimeout(recMaxTimer)
     recElapsedTimer = null
     recMaxTimer = null
+    // 切换抓帧且全程零事件：停止时补抓当前帧兜底，保证有输出（首帧不自抓，见订阅注释）
+    if (get().recFormat === 'gif' && get().recGifMode === 'switch' && gifFrameCount() === 0) grabFrame()
     const { blob, mime } = await stopCapture()
     if (blob || gifFrameCount() > 0) {
       set({ recPhase: 'saving', recBlob: blob, recMime: mime })
@@ -999,6 +1027,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setRecQuality: (q) => {
     updateSettings({ recQuality: q })
     set({ recQuality: q })
+  },
+  setRecGifMode: (m) => {
+    updateSettings({ recGifMode: m })
+    set({ recGifMode: m })
+  },
+  grabGifFrame: () => {
+    const n = grabFrame()
+    if (n >= 0) set({ recFrameCount: n })
   },
 
   saveRecording: async () => {
@@ -1053,7 +1089,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     clearRecTimers()
     discardCapture()
     clearSession()
-    set({ recPhase: 'idle', recCountdown: 0, recElapsed: 0, recBlob: null, recMime: '' })
+    set({ recPhase: 'idle', recCountdown: 0, recElapsed: 0, recBlob: null, recMime: '', recFrameCount: 0 })
   },
 
   setSync: (v) => {
@@ -1255,6 +1291,29 @@ applyTheme(settings.theme)
 // 仅开发模式暴露 store 句柄（Electron 冒烟测试 / 控制台调试；生产构建由 Rollup 消除）
 if (import.meta.env.DEV) {
   ;(window as unknown as Record<string, unknown>).__twinviewStore = useAppStore
+}
+
+/**
+ * GIF 切换抓帧事件订阅（模块级单例）：录制中（格式 GIF + 抓帧方式 switch）监听当前显示图像签名，
+ * 变化后延迟 400ms 抓一帧（等切图解码上屏——对比/单图切换多有预取与解码缓存，400ms 内基本就绪；
+ * 期间连续变化去抖只抓最后一次）。首帧不自抓：纯静态画面录制停止时由 finalizeCapture 补抓兜底。
+ */
+useAppStore.subscribe((s) => {
+  if (s.recPhase !== 'recording' || s.recFormat !== 'gif' || s.recGifMode !== 'switch') return
+  const sig = gifSig(s)
+  if (sig === gifSwitchSig) return
+  gifSwitchSig = sig
+  if (gifGrabTimer !== null) clearTimeout(gifGrabTimer)
+  gifGrabTimer = setTimeout(() => {
+    gifGrabTimer = null
+    if (useAppStore.getState().recPhase === 'recording') useAppStore.getState().grabGifFrame()
+  }, 400)
+})
+
+// 冒烟断言用：暴露录制模块命名空间（与 store 内部同一模块实例；
+// 冒烟里动态 import('/src/lib/recorder.ts') 与 '@/' 别名解析产物不同源，会拿到另一份会话单例）
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __twinviewRecorder?: typeof recorderNs }).__twinviewRecorder = recorderNs
 }
 
 /** Electron 主进程桥可用性（调试/展示用） */

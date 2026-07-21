@@ -23,6 +23,11 @@ const QUALITIES: { value: 'high' | 'medium' | 'low'; label: string }[] = [
   { value: 'low', label: '低' },
 ]
 
+const GIF_MODES: { value: 'continuous' | 'switch'; label: string }[] = [
+  { value: 'continuous', label: '连续采样' },
+  { value: 'switch', label: '切换抓帧' },
+]
+
 export function RecordOverlay() {
   const phase = useAppStore((s) => s.recPhase)
   const countdown = useAppStore((s) => s.recCountdown)
@@ -30,9 +35,12 @@ export function RecordOverlay() {
   const mime = useAppStore((s) => s.recMime)
   const format = useAppStore((s) => s.recFormat)
   const quality = useAppStore((s) => s.recQuality)
+  const gifMode = useAppStore((s) => s.recGifMode)
+  const frameCount = useAppStore((s) => s.recFrameCount)
   const providerKind = useAppStore((s) => s.providerKind)
   const setRecFormat = useAppStore((s) => s.setRecFormat)
   const setRecQuality = useAppStore((s) => s.setRecQuality)
+  const setRecGifMode = useAppStore((s) => s.setRecGifMode)
   const confirmRecConfig = useAppStore((s) => s.confirmRecConfig)
   const cancelRecConfig = useAppStore((s) => s.cancelRecConfig)
   const saveRecording = useAppStore((s) => s.saveRecording)
@@ -116,9 +124,32 @@ export function RecordOverlay() {
               <p className="mb-2 text-xs text-amber-400">当前环境 MediaRecorder 不可用，无视频输出 — 请改选 GIF</p>
             )}
             {format === 'gif' && (
-              <p className="mb-2 text-xs text-[var(--tv-text-dim)]">
-                GIF：高 15fps · ≤1280 宽 · 256 色抖动（末尾 20 秒）；中 12fps · 720 宽（30 秒）；低 8fps · 480 宽 · 128 色（30 秒）
-              </p>
+              <>
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="text-xs text-[var(--tv-text-dim)]">抓帧</span>
+                  <div className="flex gap-1">
+                    {GIF_MODES.map((m) => (
+                      <button
+                        key={m.value}
+                        data-rec-gifmode={m.value}
+                        className={`rounded border px-2.5 py-1 text-xs ${
+                          gifMode === m.value
+                            ? 'border-sky-500 bg-sky-600/20 text-sky-300'
+                            : 'border-[var(--tv-border2)] text-[var(--tv-text-dim)]'
+                        }`}
+                        onClick={() => setRecGifMode(m.value)}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="mb-2 text-xs text-[var(--tv-text-dim)]">
+                  {gifMode === 'switch'
+                    ? '切换抓帧：切图（导航/交换/换槽/显示源）自动抓一帧全分辨率画面（≤2560 宽，≤60 帧），按 C 手动补帧'
+                    : '连续采样：高 15fps · ≤1280 宽（末尾 20 秒）；中 12fps · 720 宽（30 秒）；低 8fps · 480 宽（30 秒）'}
+                </p>
+              </>
             )}
 
             {qualityRow}
@@ -165,6 +196,7 @@ export function RecordOverlay() {
         >
           <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
           {fmtElapsed(elapsed)}
+          {format === 'gif' && gifMode === 'switch' && <span data-rec-frame-count>· {frameCount} 帧</span>}
         </div>
       )}
 

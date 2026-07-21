@@ -16,6 +16,8 @@ export type NavScope = 'all' | 'checked'
 export type DiffColormap = 'inferno' | 'gray' | 'viridis' | 'coolwarm'
 /** 录制格式（开录前配置，持久化上次选择） */
 export type RecFormat = 'video' | 'gif'
+/** GIF 抓帧方式（开录前配置，持久化；仅 GIF 格式有效） */
+export type RecGifMode = 'continuous' | 'switch'
 import type { RecQuality } from '@/lib/recorder'
 export type { RecQuality }
 
@@ -54,6 +56,8 @@ export interface SettingsData {
   recFormat: RecFormat
   /** 录制画质档（视频码率于录制开始确定；GIF 影响色数与缩放） */
   recQuality: RecQuality
+  /** GIF 抓帧方式：连续采样 / 切换抓帧（仅 GIF 格式） */
+  recGifMode: RecGifMode
   favorites: FavoriteEntry[]
 }
 
@@ -83,6 +87,7 @@ export const DEFAULT_SETTINGS: SettingsData = {
   diffTolerance: 16,
   recFormat: 'video',
   recQuality: 'medium',
+  recGifMode: 'continuous',
   favorites: [],
 }
 
@@ -106,6 +111,7 @@ const LAYOUT_VALUES: CompareLayout[] = ['wipe', 'side', 'overlay', 'diff']
 export const DIFF_COLORMAP_VALUES: DiffColormap[] = ['inferno', 'gray', 'viridis', 'coolwarm']
 const REC_FORMAT_VALUES: RecFormat[] = ['video', 'gif']
 const REC_QUALITY_VALUES: RecQuality[] = ['high', 'medium', 'low']
+const REC_GIF_MODE_VALUES: RecGifMode[] = ['continuous', 'switch']
 const THEME_VALUES: ThemeMode[] = ['dark', 'light', 'system']
 
 function clamp01(v: number, min: number, max: number): number {
@@ -154,6 +160,7 @@ function sanitize(raw: Partial<SettingsData>): SettingsData {
     })(),
     recFormat: pick(raw.recFormat, REC_FORMAT_VALUES, d.recFormat),
     recQuality: pick(raw.recQuality, REC_QUALITY_VALUES, d.recQuality),
+    recGifMode: pick(raw.recGifMode, REC_GIF_MODE_VALUES, d.recGifMode),
     favorites: Array.isArray(raw.favorites)
       ? raw.favorites.filter(
           (f): f is FavoriteEntry =>

@@ -171,21 +171,24 @@ export function mapFrameToPalette(
   return out
 }
 
-/** 编码帧序列为 GIF Blob（全局调色板：首帧写板，后续帧复用；无限循环） */
+/** 编码帧序列为 GIF Blob（全局调色板：首帧写板，后续帧复用；无限循环）。
+ *  delaysMs 可选逐帧时长（切换抓帧模式按真实抓帧时间戳；缺省 = 档位 fps 均匀时长） */
 export function encodeGifFrames(
   frames: Uint8ClampedArray[],
   w: number,
   h: number,
   quality: GifQuality,
+  delaysMs?: number[],
 ): Promise<Blob> {
   if (frames.length === 0) return Promise.reject(new Error('无可用帧'))
   const plan = GIF_PLANS[quality]
   const palette = buildGlobalPalette(frames, plan.colors)
   const lut = buildPaletteLut(palette)
-  const delay = Math.round(1000 / plan.fps)
+  const uniform = Math.round(1000 / plan.fps)
   const gif = GIFEncoder()
   for (let f = 0; f < frames.length; f++) {
     const idx = mapFrameToPalette(frames[f], w, h, palette, lut, plan.dither)
+    const delay = delaysMs?.[f] ?? uniform
     if (f === 0) gif.writeFrame(idx, w, h, { palette, delay, repeat: 0 })
     else gif.writeFrame(idx, w, h, { delay })
   }
