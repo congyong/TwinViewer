@@ -69,7 +69,7 @@ export function useKeyboard() {
         return
       }
       if (key === 's') {
-        // S：录制显示区开关（idle→开录前配置对话框；录制中→倒计时停止；倒计时内再按取消；配置/保存对话框中无效）
+        // S：录制显示区开关（idle→开录前配置对话框；starting 倒计时内→取消；录制中→立即停止进 saving；配置/保存对话框中无效）
         s.toggleRecord()
         return
       }

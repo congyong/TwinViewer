@@ -911,10 +911,12 @@ async function runSmokeTest(win) {
         return fail(`差值热图不符预期: ${JSON.stringify(diffAssert)}`)
       }
 
-      // a.13) 录制状态机（先配置后开录）：按钮 → S 出配置对话框（格式/画质按钮齐全、默认 video/medium）→
+      // a.13) 录制状态机（先配置后开录 + 立即停止）：按钮 → S 出配置对话框（格式/画质按钮齐全、默认 video/medium）→
       //       选 GIF/低画质（持久化到 settings）→ 取消/Esc 回 idle → 再开记住上次选择 →
-      //       「开始录制」→ starting 倒计时 → S 取消 → 确认采集（结果报告值）→ 停止倒计时（可取消）→
-      //       saving 自动弹系统保存（冒烟 IPC 模拟用户取消，留 saving）→ 保存参数与开录前一致 → 放弃回 idle
+      //       「开始录制」→ starting 倒计时 → S 取消 → 确认采集（结果报告值）→ **S 立即停止**（无 stopping 中间态）→
+      //       saving 自动弹系统保存（冒烟 IPC 模拟用户取消，留 saving）→ 保存参数与开录前一致 → 放弃回 idle；
+      //       GIF 画质单元（gif-core 档位计划/尺寸上限/合成帧编码）+ a.13b 高档实采目检样本写盘（报告值）
+      const gifOut = path.join(__dirname, '..', 'gif-smoke-high.gif')
       const recAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
         const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -975,22 +977,19 @@ async function runSmokeTest(win) {
         out.afterCountdown = S().recPhase
         out.captureOk = S().recPhase === 'recording'
         if (!out.captureOk) store.setState({ recPhase: 'recording' })
-        // 停止倒计时（期间继续录）
+        // 录制 1.2s 攒帧后停止 = **立即停止**：轮询相位序列，断言无 stopping 中间态且直接落 saving
+        await wait(1200)
         S().toggleRecord()
-        await wait(150)
-        out.stoppingPhase = S().recPhase === 'stopping'
-        const pill1 = document.querySelector('[data-rec-pill]')
-        out.stopPill = !!pill1 && pill1.textContent.includes('后停止录制')
-        // 倒计时内 S → 取消停止
-        S().toggleRecord()
-        await wait(150)
-        out.cancelStop = S().recPhase === 'recording'
-        // 再次停止并快进 → saving（自动弹系统保存；冒烟 IPC 返回 null=用户取消，留 saving）
-        S().toggleRecord()
-        await wait(150)
-        store.setState({ recCountdown: 1 })
-        await wait(1600)
+        const seen = new Set(['recording'])
+        for (let i = 0; i < 40; i++) {
+          if (S().recPhase !== 'recording') break
+          await wait(50)
+          seen.add(S().recPhase)
+        }
+        seen.add(S().recPhase)
+        out.noStopping = !seen.has('stopping')
         out.afterStop = S().recPhase // 真会话 → 'saving'；无会话 → 'idle'
+        out.stopImmediate = out.afterStop === 'saving' && out.noStopping
         if (S().recPhase !== 'saving') {
           store.setState({ recPhase: 'saving', recBlob: new Blob(['x']), recMime: 'video/mp4' })
         }
@@ -1005,16 +1004,65 @@ async function runSmokeTest(win) {
         click('[data-rec-discard]')
         await wait(200)
         out.discarded = S().recPhase === 'idle' && !document.querySelector('[data-rec-save]')
+        // GIF 画质单元：计划档位（fps/环形帧数/色数/抖动）+ 尺寸上限与字节预算 + 合成渐变帧编码出合法 GIF
+        const core = await import('/src/lib/gif-core.ts')
+        const gp = core.GIF_PLANS
+        out.planTiers = gp.high.fps === 15 && gp.medium.fps === 12 && gp.low.fps >= 8 && gp.low.fps <= 10 &&
+          gp.high.maxFrames === 300 && gp.medium.maxFrames === 360 && gp.low.maxFrames === 240 &&
+          gp.high.colors === 256 && gp.medium.colors === 192 && gp.low.colors === 128 &&
+          gp.high.dither === true && gp.medium.dither === true && gp.low.dither === false
+        const dim1 = core.gifFrameDims(2000, 1000, 'high')
+        const dim2 = core.gifFrameDims(1000, 500, 'high')
+        out.planDimsCap = dim1.w === 1280 && dim1.h === 640 && dim2.w === 1000 && dim2.h === 500
+        out.planEffFrames = core.gifEffectiveMaxFrames(1280, 720, 'high') === 300
+        const SW = 64, SH = 48, sframes = []
+        for (let f = 0; f < 6; f++) {
+          const dd = new Uint8ClampedArray(SW * SH * 4)
+          for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+            const ii = (y * SW + x) * 4
+            dd[ii] = Math.round((255 * x) / (SW - 1)); dd[ii + 1] = Math.round((255 * y) / (SH - 1))
+            dd[ii + 2] = Math.round((255 * f) / 5); dd[ii + 3] = 255
+          }
+          sframes.push(dd)
+        }
+        const synthBlob = await core.encodeGifFrames(sframes, SW, SH, 'high')
+        const synthBuf = new Uint8Array(await synthBlob.arrayBuffer())
+        out.gifEncodes = synthBlob.size > 0 && synthBuf[0] === 0x47 && synthBuf[1] === 0x49 && synthBuf[2] === 0x46
         // 复位（含持久化默认值还原）
         S().setRecFormat('video'); S().setRecQuality('medium')
         store.setState({ viewMode: 'browse', recPhase: 'idle' })
         S().setViewMode('browse')
         await wait(200)
+        // a.13b) 高档 GIF 实采目检样本（报告值，不进 ok）：渐变测试图 → 真采集 2.5s → encodeGif('high') → 写盘
+        try {
+          const rec = await import('/src/lib/recorder.ts')
+          const grad = S().images.find((e) => e.name.includes('grad'))
+          store.setState({ viewMode: 'single', currentId: (grad || S().images[0]).id, fullscreenCell: null, physicalFullscreen: false })
+          await wait(900)
+          await rec.startCapture('high')
+          await wait(2500)
+          await rec.stopCapture()
+          out.gifHighFrames = rec.gifFrameCount()
+          const hiBlob = await rec.encodeGif('high')
+          const hiBuf = new Uint8Array(await hiBlob.arrayBuffer())
+          out.gifHighMagic = hiBuf[0] === 0x47 && hiBuf[1] === 0x49 && hiBuf[2] === 0x46
+          const wr = await window.twinview.writeBinaryFile(${JSON.stringify(gifOut)}, await hiBlob.arrayBuffer())
+          rec.clearSession()
+          out.gifHighSaved = !!(wr && wr.ok)
+          out.gifHighBytes = hiBlob.size
+        } catch (e) {
+          out.gifHighSaved = false
+          out.gifHighError = String((e && e.message) || e)
+        }
+        store.setState({ viewMode: 'browse' })
+        S().setViewMode('browse')
+        await wait(200)
         out.ok = out.btnShown && out.configPhase && out.configShown && out.formatBtns && out.qualityBtns &&
           out.defaults && out.picked && out.persisted && out.cancelConfig && out.remembered && out.escCancel &&
           out.startingPhase && out.pillShown && out.cancelStart &&
-          out.stoppingPhase && out.stopPill && out.cancelStop &&
-          out.paramsKept && out.dialogShown && out.saveParamsShown && out.noReask && out.discarded
+          out.noStopping && out.stopImmediate &&
+          out.paramsKept && out.dialogShown && out.saveParamsShown && out.noReask && out.discarded &&
+          out.planTiers && out.planDimsCap && out.planEffFrames && out.gifEncodes
         return out
       })()`)
       console.log(`[SMOKE] 录制状态机: ${JSON.stringify(recAssert)}`)

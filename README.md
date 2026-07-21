@@ -38,7 +38,7 @@
 | 主题 | 暗色 / 亮色 / 跟随系统三档（工具栏切换，持久化；Electron 窗口背景同步，首帧防闪） |
 | 单图 | 适应窗口 / 100%、滚轮锚点缩放、拖拽平移、R/L 旋转、F 控件全屏（隐藏侧栏与胶片条） |
 | A/B 对比 | **划变**（同区域对齐 + 可拖分割线）/ **并排**（可拖比例 + 同步开关）/ **叠化**（透明度 onion-skin，可换上下层）/ **差值**（逐像素差值热图：三通道 max abs diff，≤容差置黑，其余归一后过 colormap——inferno / gray / viridis / coolwarm + 容差 0–128 可调并持久化；B 缩放到 A 尺寸对齐，缩放平移不重算，源图/容差变化才重算；D 键开关，再按 D 返回之前布局），W/G 循环前三种；Tab 切激活侧；X 交换；N 下一对 |
-| 显示区录制 | 工具栏按钮 / `S` 键：先弹**开录前配置对话框**（格式 **MP4 / GIF** + 画质 高/中/低，默认取上次选择并持久化）→「开始录制」→ 3 秒倒计时胶囊（可取消）→ 红点计时徽标录制 → 3 秒停止倒计时（期间继续录，可取消）→ 停止后**直接弹系统保存对话框选位置**（格式/画质按开录前选择，不再询问）。Electron 采集本窗口并按显示区裁剪（desktopCapturer + 镜像 canvas，MediaRecorder 优先 MP4、不支持落 WebM 并明示；GIF = gifenc，10fps 最多最近 30 秒）；上限 10 分钟自动停；视图切换自动停止释放 |
+| 显示区录制 | 工具栏按钮 / `S` 键：先弹**开录前配置对话框**（格式 **MP4 / GIF** + 画质 高/中/低，默认取上次选择并持久化）→「开始录制」→ 3 秒倒计时胶囊（可取消）→ 红点计时徽标录制 → **再按 S 立即停止** → 直接弹系统保存对话框选位置（格式/画质按开录前选择，不再询问）。Electron 采集本窗口并按显示区裁剪（desktopCapturer + 镜像 canvas，MediaRecorder 优先 MP4、不支持落 WebM 并明示；GIF = gifenc，**高 15fps·≤1280 宽·256 色 rgb888 全局调色板 + Floyd–Steinberg 抖动**（末尾 20 秒），中 12fps·720 宽·192 色抖动（30 秒），低 8fps·480 宽·128 色（30 秒））；上限 10 分钟自动停；视图切换自动停止释放 |
 | 多图网格 | 勾选 ≥3 张进入（最多 9 张）；自动/手动布局；同步/独立两档；数字键选格；N 下一组 |
 | 解码缓存 | 会话级字节预算 LRU（**1GB**，按 宽×高×4 计）、在显 pin 保护、预取（对比集合 / 单图 ±1）、**双缓冲无缝切图**、调试日志（`twinview.debugCache=1`） |
 | 缩放算法 | 自动 / 邻近 / **BIFant\* / 双线性\* / 双立方\* / Lanczos-3\***（\*为软件精确重采样：浏览时平滑预览，停手 ~150ms 后 CPU 可分离卷积精确重绘，LRU 缓存 8 张；**切算法零解码**） |
@@ -79,7 +79,7 @@
 | Tab | 对比：切换激活侧（A ↔ B）；网格：循环激活格 |
 | X / W / G / N | 交换 A/B ｜ 循环对比布局（划变/并排/叠化）｜ 同 W ｜ 对比下一对 / 网格下一组 |
 | D | 差值热图开关（对比第 4 种布局；再按返回之前布局；colormap 与容差在工具条调） |
-| S | 录制显示区：开录前配置对话框（MP4/GIF + 画质档，记住上次选择）→ 倒计时开始（可取消）→ 录制中 → 倒计时停止（期间继续录，可取消）→ 系统保存对话框选位置（不再询问格式/画质） |
+| S | 录制显示区：开录前配置对话框（MP4/GIF + 画质档，记住上次选择）→ 倒计时开始（可取消）→ 录制中 → **再按立即停止** → 系统保存对话框选位置（不再询问格式/画质） |
 | ? | 打开 / 关闭快捷键帮助 |
 
 ## 快速开始
@@ -109,7 +109,7 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / **差值热图（配置面板仅 diff 可见+容差滑块联动 store、diff canvas 挂载、同图全黑、异图非黑、单元级合成位图验证容差单调抑制/置黑阈值、四种必需 colormap inferno/gray/viridis/coolwarm 齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差）** / **录制状态机（先配置后开录：S 出配置对话框、选 GIF/低画质并断言持久化、取消/Esc 回 idle、再开记住上次选择、确认进 starting 倒计时、采集（headless 真实采集成功）、停止倒计时可取消、saving 自动弹系统保存（冒烟模拟取消）、保存参数与开录前一致、放弃回 idle）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / **差值热图（配置面板仅 diff 可见+容差滑块联动 store、diff canvas 挂载、同图全黑、异图非黑、单元级合成位图验证容差单调抑制/置黑阈值、四种必需 colormap inferno/gray/viridis/coolwarm 齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差）** / **录制状态机（先配置后开录 + 立即停止：S 出配置对话框、选 GIF/低画质并断言持久化、取消/Esc 回 idle、再开记住上次选择、确认进 starting 倒计时、采集（headless 真实采集成功）、S 立即停止无 stopping 中间态、saving 自动弹系统保存（冒烟模拟取消）、保存参数与开录前一致、放弃回 idle；GIF 画质单元：gif-core 档位计划/尺寸上限/字节预算/合成帧编码合法）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
 
 ## CLI 与集成
 
@@ -176,7 +176,7 @@ TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe .
 - 浏览器 FS Access 的删除为 `handle.remove()` 直删、不进回收站（UI 有警示，需 Chrome 110+）；Electron 删除进回收站
 - 软件重采样（BIFant/双线性/双立方/Lanczos）为 CPU 逐像素卷积：大图连续缩放时先平滑预览、停手 ~150ms 后出精确图；canvas 目标尺寸夹取 4096px
 - ALT 探针离屏 canvas 最长边 4096px（超大图按比例取样），缓存上限 4 张；**diff 差值布局下 ALT 探针不可用**（显示的是合成热图而非源图）
-- 录制：Electron 采集整个本窗口再按显示区 rect 裁剪（录不到系统声音；窗口被最小化/遮挡区域画面由系统合成器决定）；MP4 容器依赖 Chromium 的 MediaRecorder 支持，不可用时自动落 **WebM**（UI 明示）；**视频码率按画质档于录制开始时确定**（保存对话框中改画质只影响 GIF 色数/缩放与下次录制）；GIF 为 10fps、最多取录制末尾 30 秒；浏览器模式经 getDisplayMedia 采集（可能包含浏览器 UI，取决于用户选择的共享目标），保存 = 触发下载（无法选择位置）
+- 录制：Electron 采集整个本窗口再按显示区 rect 裁剪（录不到系统声音；窗口被最小化/遮挡区域画面由系统合成器决定）；MP4 容器依赖 Chromium 的 MediaRecorder 支持，不可用时自动落 **WebM**（UI 明示）；**视频码率按画质档于录制开始时确定**（保存对话框中改画质只影响下次录制）；GIF 按画质档采集与编码（高 15fps·≤1280 宽·256 色 FS 抖动·末尾 20 秒，中 12fps·720 宽·30 秒，低 8fps·480 宽·128 色·30 秒；高档 300 帧 720p RGBA ≈1.1GB 内存，超大裁剪按 1.25GB 预算缩帧兜底）；浏览器模式经 getDisplayMedia 采集（可能包含浏览器 UI，取决于用户选择的共享目标），保存 = 触发下载（无法选择位置）
 - 超大文件夹（数万张）未做虚拟滚动；网格对比最多 9 张
 - AVIF / TIFF 等格式依赖浏览器自身解码能力；旋转仅为视图层效果，不写回文件
 
@@ -197,7 +197,8 @@ twinview/
 │  │  ├─ decode-cache.ts                 会话解码缓存（1GB 字节预算 LRU + pin + peekDecoded）
 │  │  ├─ pixel-probe.ts                  ALT 颜色探针像素读取（离屏 canvas，LRU 4）
 │  │  ├─ diffmap.ts                      差值热图（max abs diff + 容差 + 4 种 colormap LUT）
-│  │  ├─ recorder.ts                     显示区录制（desktopCapturer/getDisplayMedia → 镜像裁剪 → MediaRecorder/gifenc）
+│  │  ├─ gif-core.ts                     GIF 编码核心（画质档计划 + rgb888 全局调色板 + FS 抖动，纯函数）
+│  │  ├─ recorder.ts                     显示区录制（desktopCapturer/getDisplayMedia → 镜像裁剪 → MediaRecorder/gif-core）
 │  │  ├─ image-info.ts                   直方图抽样 + EXIF 读取（按图缓存）
 │  │  ├─ file-ops.ts                     复制 / 粘贴 / 新建文件夹 / 删除（双实现）
 │  │  ├─ dir-tree.ts                     目录树工具（三种数据源 → DirNode）

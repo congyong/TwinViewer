@@ -5,6 +5,13 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 变更
+
+- **GIF 画质大幅提升**：高档 10fps→**15fps**（中档 12、低档 8）、分辨率 360 宽→**≤1280 宽不缩放**（中 720、低 480）；调色板改 **rgb888 全彩采样全局 256 色**（原 rgb565 逐帧粗采样），高/中档加 **Floyd–Steinberg 抖动**（低档 128 色直映射）——渐变块伏色带消除、文字边缘清晰；环形缓冲高档 15fps×20s=300 帧（720p RGBA ≈1.1GB，1.25GB 预算兜底），中/低档仍 30 秒
+- **停止录制改为立即**：录制中按 `S` / 停止按钮立即停止并进入保存（系统保存对话框选位置），移除「3S 后停止录制」倒计时与 stopping 中间态；开始倒计时保留
+
 ## [0.2.1] - 2026-07-21
 
 ### 变更
@@ -105,6 +112,7 @@
 - macOS DMG 改 ad-hoc 签名，修复 arm64「已损坏，无法打开」（首次打开仍需「右键 → 打开」）
 - 对比模式 X 交换失效修复；仅勾选导航允许槽位重复（移除误报提示）
 
+[Unreleased]: https://github.com/congyong/TwinViewer/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/congyong/TwinViewer/releases/tag/v0.2.1
 [0.2.0]: https://github.com/congyong/TwinViewer/releases/tag/v0.2.0
 [0.1.1]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.1

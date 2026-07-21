@@ -247,8 +247,8 @@ export interface AppState {
   diffTolerance: number
   /** D 键切 diff 前的布局（退出 diff 时还原；会话级不持久化） */
   diffPrevLayout: CompareLayout
-  /** 录制状态机：idle→configuring(开录前配置)→starting(倒计时)→recording→stopping(倒计时)→saving(系统保存对话框)→idle */
-  recPhase: 'idle' | 'configuring' | 'starting' | 'recording' | 'stopping' | 'saving'
+  /** 录制状态机：idle→configuring(开录前配置)→starting(倒计时)→recording→saving(系统保存对话框)→idle（停止为立即，无倒计时） */
+  recPhase: 'idle' | 'configuring' | 'starting' | 'recording' | 'saving'
   recCountdown: number
   /** 录制进行秒数（徽标计时） */
   recElapsed: number
@@ -303,7 +303,7 @@ export interface AppState {
   toggleDiffLayout: () => void
   setDiffColormap: (m: DiffColormap) => void
   setDiffTolerance: (v: number) => void
-  /** S 键 / 工具栏按钮：idle→开录前配置；录制中→倒计时停止；倒计时内再按取消（configuring/saving 中 S 无效） */
+  /** S 键 / 工具栏按钮：idle→开录前配置；starting 倒计时内→取消；录制中→立即停止进 saving（configuring/saving 中 S 无效） */
   toggleRecord: () => void
   /** 配置对话框「开始录制」：确认格式/画质（已持久化）→ 进入 3 秒开始倒计时 */
   confirmRecConfig: () => void
@@ -929,24 +929,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
       clearRecTimers()
       set({ recPhase: 'idle', recCountdown: 0 })
     } else if (phase === 'recording') {
-      // 停止倒计时（期间继续录；倒计时内再按 S 取消停止）
-      if (recTickTimer !== null) clearInterval(recTickTimer)
-      set({ recPhase: 'stopping', recCountdown: 3 })
-      recTickTimer = setInterval(() => {
-        const c = get().recCountdown
-        if (c <= 1) {
-          if (recTickTimer !== null) clearInterval(recTickTimer)
-          recTickTimer = null
-          void get().finalizeCapture()
-        } else {
-          set({ recCountdown: c - 1 })
-        }
-      }, 1000)
-    } else if (phase === 'stopping') {
-      // 取消停止 → 回到录制中
-      if (recTickTimer !== null) clearInterval(recTickTimer)
-      recTickTimer = null
-      set({ recPhase: 'recording', recCountdown: 0 })
+      // 停止 = 立即停止（无倒计时）：直接收尾进 saving 弹系统保存对话框
+      void get().finalizeCapture()
     }
     // configuring / saving 中 S 无效（对话框操作）
   },
@@ -979,7 +963,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       set({ recPhase: 'recording', recCountdown: 0, recMime: mime, recElapsed: 0 })
       recElapsedTimer = setInterval(() => set({ recElapsed: get().recElapsed + 1 }), 1000)
       recMaxTimer = setTimeout(() => {
-        if (get().recPhase === 'recording' || get().recPhase === 'stopping') {
+        if (get().recPhase === 'recording') {
           get().showNotice('录制已达 10 分钟上限，自动停止')
           void get().finalizeCapture()
         }

@@ -2,8 +2,8 @@
  * 录制 UI 叠层（挂在显示区列上，absolute 覆盖查看区）：
  * - configuring：开录前配置对话框（格式 MP4/GIF + 画质 高/中/低，默认取上次选择并持久化；
  *   「开始录制」→ 倒计时，「取消」/ Esc → 回 idle）
- * - starting/stopping：中央半透明胶囊倒计时（「3S 后开始录制 / 3S 后停止录制（再按 S 取消）」）
- * - recording：右上角红点计时徽标
+ * - starting：中央半透明胶囊倒计时（「3S 后开始录制」，再按 S 取消）
+ * - recording：右上角红点计时徽标（再按 S = **立即停止**进 saving，无停止倒计时）
  * - saving：停止后自动按开录前选择弹系统保存对话框（不再询问格式/画质）；
  *   用户取消路径选择或保存失败时叠层提供「重试保存 / 放弃录制」
  *   （MP4 不可用在配置对话框已明示并落 WebM；浏览器模式只能触发下载）
@@ -95,7 +95,7 @@ export function RecordOverlay() {
         </div>
       </div>
       <p className="mb-3 text-[11px] text-[var(--tv-text-faint)]">
-        {format === 'gif' ? '影响 GIF 色数与缩放' : '影响码率（于录制开始时按档位确定）'}
+        {format === 'gif' ? '影响 GIF 帧率 / 分辨率 / 色数 / 时长上限' : '影响码率（于录制开始时按档位确定）'}
       </p>
     </>
   )
@@ -116,7 +116,9 @@ export function RecordOverlay() {
               <p className="mb-2 text-xs text-amber-400">当前环境 MediaRecorder 不可用，无视频输出 — 请改选 GIF</p>
             )}
             {format === 'gif' && (
-              <p className="mb-2 text-xs text-[var(--tv-text-dim)]">GIF 10fps，最多取录制末尾 30 秒</p>
+              <p className="mb-2 text-xs text-[var(--tv-text-dim)]">
+                GIF：高 15fps · ≤1280 宽 · 256 色抖动（末尾 20 秒）；中 12fps · 720 宽（30 秒）；低 8fps · 480 宽 · 128 色（30 秒）
+              </p>
             )}
 
             {qualityRow}
@@ -146,12 +148,12 @@ export function RecordOverlay() {
         </div>
       )}
 
-      {(phase === 'starting' || phase === 'stopping') && (
+      {phase === 'starting' && (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
           <div data-rec-pill className="flex items-center rounded-full bg-black/70 px-5 py-2.5 text-sm text-white shadow-lg">
-            <span>{phase === 'starting' ? `${countdown}S 后开始录制` : `${countdown}S 后停止录制`}</span>
+            <span>{countdown}S 后开始录制</span>
             <span className="ml-3 inline-block w-6 text-center text-lg font-bold text-red-400">{countdown}</span>
-            {phase === 'stopping' && <span className="ml-2 text-xs text-neutral-300">再按 S 取消</span>}
+            <span className="ml-2 text-xs text-neutral-300">再按 S 取消</span>
           </div>
         </div>
       )}

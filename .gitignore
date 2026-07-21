@@ -6,6 +6,7 @@ release/
 # 冒烟测试产物
 smoke-output.txt
 smoke-home.png
+gif-smoke-high.gif
 
 # 日志与临时文件
 *.log
