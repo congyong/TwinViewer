@@ -7,10 +7,10 @@
 - 界面语言：中文 ｜ 主题：FastStone 风格深色
 - 技术栈：React 19 + TypeScript + Vite + Tailwind + shadcn/ui + zustand；Electron 桌面壳（CommonJS 主进程 + contextBridge preload）
 
-**📦 正式版 v0.2.2（推荐）**：<https://github.com/congyong/TwinViewer/releases/latest>
+**📦 正式版 v0.2.3（推荐）**：<https://github.com/congyong/TwinViewer/releases/latest>
 
-- Windows：`TwinView-Setup-0.2.2-windows-x64.exe`（NSIS 安装包，可选安装目录；未签名，SmartScreen 首次提示选「仍要运行」）
-- macOS：`TwinView-0.2.2-macos-arm64.dmg`（Apple Silicon，**ad-hoc 签名**（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开）
+- Windows：`TwinView-Setup-0.2.3-windows-x64.exe`（NSIS 安装包，可选安装目录；未签名，SmartScreen 首次提示选「仍要运行」）
+- macOS：`TwinView-0.2.3-macos-arm64.dmg`（Apple Silicon，**ad-hoc 签名**（无开发者证书）：首次打开请「右键 → 打开」绕过 Gatekeeper；若仍提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/TwinView.app` 后再开）
 
 **🌙 Nightly 下载（每次 main push 自动构建，滚动覆盖）**：<https://github.com/congyong/TwinViewer/releases/tag/nightly>
 
@@ -37,7 +37,7 @@
 | 打开文件夹 | **选择即打开**（无二次确认）。Electron：自绘对话框（快捷入口 + 子目录**单击选中 / 双击进入** + 右侧**本层预览**：子文件夹条目（图标+名称，单击进入）与本层图片缩略图，计数按本层不递归；「打开此文件夹」直接生效；系统对话框 win32 下文件/文件夹均可选，选中文件 = 打开所在文件夹并定位）；浏览器：选择后直接打开 |
 | 主题 | 暗色 / 亮色 / 跟随系统三档（工具栏切换，持久化；Electron 窗口背景同步，首帧防闪） |
 | 单图 | 适应窗口 / 100%、滚轮锚点缩放、拖拽平移、R/L 旋转、F 控件全屏（隐藏侧栏与胶片条） |
-| A/B 对比 | **划变**（同区域对齐 + 可拖分割线）/ **并排**（可拖比例 + 同步开关）/ **叠化**（透明度 onion-skin，可换上下层）/ **差值**（逐像素差值热图：三通道 max abs diff，≤容差置黑，其余默认**直方图均衡**——>容差的幅值按 CDF 累积分布重映射到全区间，两图很接近时小差异拉伸可见，面板可关回线性归一（默认开，持久化），并实时显示 diff 最大值；过 colormap——inferno / gray / viridis / coolwarm + 容差 0–128 可调并持久化；B 缩放到 A 尺寸对齐，缩放平移不重算，源图/容差/均衡变化才重算；D 键开关，再按 D 返回之前布局），W/G 循环前三种；Tab 切激活侧；X 交换；N 下一对 |
+| A/B 对比 | **划变**（同区域对齐 + 可拖分割线）/ **并排**（可拖比例 + 同步开关）/ **叠化**（透明度 onion-skin，可换上下层）/ **差值**（逐像素差值热图：三通道 max abs diff，≤容差置黑，其余默认**直方图均衡**——>容差的幅值按 CDF 累积分布重映射到全区间，两图很接近时小差异拉伸可见，面板可关回线性归一（默认开，持久化），并实时显示 diff 最大值；过 colormap——inferno / gray / viridis / coolwarm + 容差 0–128 可调并持久化；B 缩放到 A 尺寸对齐，缩放平移不重算，源图/容差/均衡变化才重算；D 键开关，再按 D 返回之前布局），W/G 循环前三种；Tab 切激活侧；X 交换；N 下一对。**「对比选中」（或回车勾选 ≥2 张）进入 A/B 对比时布局固定从并排开始**（不沿用上次记住的布局；会话内 W 手动切换与持久化仍生效，网格 ≥3 张与 CLI --layout 路径不受影响） |
 | 显示区录制 | 工具栏按钮 / `S` 键：先弹**开录前配置对话框**（格式 **MP4 / GIF** + 画质 高/中/低，默认取上次选择并持久化；GIF 格式另有**抓帧方式二选一**：连续采样 / **切换抓帧**（新用户默认切换抓帧），持久化记住）→「开始录制」→ 3 秒倒计时胶囊（可取消）→ 红点计时徽标录制 → **再按 S 立即停止** → 直接弹系统保存对话框选位置（格式/画质按开录前选择，不再询问）。Electron 采集本窗口并按显示区裁剪（desktopCapturer + 镜像 canvas，MediaRecorder 优先 MP4、不支持落 WebM 并明示；GIF = gifenc，**连续采样**：**高 15fps·≤1280 宽·256 色 rgb888 全局调色板 + Floyd–Steinberg 抖动**（末尾 20 秒），中 12fps·720 宽·192 色抖动（30 秒），低 8fps·480 宽·128 色（30 秒）；**切换抓帧**：当前显示图像变化（单图/对比槽位/网格/全屏格）才去抖抓一帧，**全分辨率不降采样**（显示区设备像素原尺寸，仅 >2560 宽封顶），**帧间时长固定可配**（配置对话框 0.1–5 秒，默认 0.5，持久化；编码时每帧 delay 统一用该值，含末帧——v15 起替代按真实时间戳间隔的策略），上限 60 帧，录制中可按 **C** 手动补帧、徽标实时显示已抓帧数）；上限 10 分钟自动停；视图切换自动停止释放 |
 | 多图网格 | 勾选 ≥3 张进入（最多 9 张）；自动/手动布局；同步/独立两档；数字键选格；N 下一组 |
 | 解码缓存 | 会话级字节预算 LRU（**1GB**，按 宽×高×4 计）、在显 pin 保护、预取（对比集合 / 单图 ±1）、**双缓冲无缝切图**、调试日志（`twinview.debugCache=1`） |
@@ -71,7 +71,9 @@
 | 双击图片 | 单图：适应窗口 ↔ 100%；对比 / 网格：三层链 —— 控件全屏 → 物理全屏 → 循环切换显示源（A↔B / 下一格，槽位与格组内容不变） |
 | Esc | 物理全屏 → 控件全屏 → 返回浏览模式（逐级，保留勾选） |
 | 滚轮 / 拖拽 | 以鼠标为中心缩放 / 平移图片 |
-| I | 显示 / 隐藏信息浮层（基本 + EXIF；直方图由工具栏独立开关） |
+| I | 显示 / 隐藏信息浮层（基本 + EXIF） |
+| H | 显示 / 隐藏直方图（与工具栏开关同一状态，记住选择） |
+| 回车 | 浏览模式按勾选分流：勾选 1 张 → 该图单图；≥2 张 → 对比选中（2 张 A/B、≥3 张网格）；0 张 → 当前焦点图单图，无焦点无操作 |
 | 空格 | 勾选 / 取消勾选当前图片 |
 | Backspace | 浏览模式：返回上级文件夹（面包屑 / 文件夹树 / 网格三处状态一致） |
 | 双击文件夹 | 进入该文件夹（网格 / 列表中文件夹排在图片前，带预览拼贴与计数） |
@@ -112,7 +114,7 @@ npm run build   # 冒烟加载 dist，需先构建
 TWINVIEW_SMOKE=1 NODE_ENV=production ./node_modules/electron/dist/electron.exe . 2>&1 | tee smoke-output.txt
 ```
 
-自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）+ X 交换解耦断言（同图后 X 自动换 B 槽可见生效、连续两次 X 回到原图、全屏 L1/L2 下 X 同样生效、L3 双击切源状态级翻转）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / **差值热图（配置面板仅 diff 可见+容差滑块联动 store、diff canvas 挂载、同图全黑、异图非黑、单元级合成位图验证容差单调抑制/置黑阈值、四种必需 colormap inferno/gray/viridis/coolwarm 齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差、**直方图均衡默认开+面板开关联动+max 显示、8 灰级差合成图均衡开高亮 >0.7 / 关 <0.1、全同图仍全黑**）** / **录制状态机（先配置后开录 + 立即停止：S 出配置对话框、选 GIF/低画质并断言持久化、取消/Esc 回 idle、再开记住上次选择、确认进 starting 倒计时、采集（headless 真实采集成功）、S 立即停止无 stopping 中间态、saving 自动弹系统保存（冒烟模拟取消）、保存参数与开录前一致、放弃回 idle；GIF 画质单元：gif-core 档位计划/尺寸上限/字节预算/合成帧编码合法；GIF 切换抓帧端到端：默认方式 switch + 默认帧间 0.5s、配置框帧间时长输入联动、switch 模式开录首帧不自抓、两次槽位切换 + C 手动帧 = 3 帧且徽标同步、帧尺寸 = 显示区设备像素原尺寸（≤2560 封顶）、立即停止、编码 GIF 合法且 GCE delay 全为固定帧间时长（设 0.8s → 全 80×1/100s）、放弃回 idle）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
+自动校验目录扫描 / list-dirs / path-ancestors / read-file-buffer（含像素非零断言）/ 文件操作三件套 / 打开对话框 IPC（special-dirs / browse-dir / dir-image-preview 递归+shallow 本层断言）/ **UI 自动化（自动打开测试目录，断言递归关 8 张 ↔ 开 10 张、子文件夹卡片、面包屑、列表模式行数、Backspace 返回、主题亮/暗切换、打开文件夹对话框渲染）** / **CLI 注入（cli-open folder+file 定位选中、--compare 槽位/布局/主题 flag）** / **真全屏布局（状态级模拟 chrome 卸载/恢复）+ 槽位导航（仅勾选占满时回退同图且无提示、全部档步进跳过、激活侧切换、swap 回归、网格跳过与回退同图）+ X 交换解耦断言（同图后 X 自动换 B 槽可见生效、连续两次 X 回到原图、全屏 L1/L2 下 X 同样生效、L3 双击切源状态级翻转）+ 对比选中固定并排（wipe/diff 进入均重置 side、网格 ≥3 不重置）+ H 直方图开关（事件级大小写往返）+ 回车勾选分流（1 张单图 / 2 张并排 A/B / ≥3 网格 / 0 张焦点图）** / **视图级物理全屏（Shift+F 直进：对比 2 pane / 网格 4 pane 布局不变 + 悬浮迷你条 + chrome 全卸载，退出恢复）** / **双击三层链（事件级 dblclick 进 L1 控件全屏；action 触发物理全屏请求 + 状态级模拟 L2；L3 对比 A↔B 槽位内容不变、网格 0→1→2 格组不变；退出 chrome 恢复）** / **树点击回浏览（对比模式下模拟树节点点击 → viewMode=browse 且 currentPath 正确；浏览中点击不变；Esc 回归）** / **差值热图（配置面板仅 diff 可见+容差滑块联动 store、diff canvas 挂载、同图全黑、异图非黑、单元级合成位图验证容差单调抑制/置黑阈值、四种必需 colormap inferno/gray/viridis/coolwarm 齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差、**直方图均衡默认开+面板开关联动+max 显示、8 灰级差合成图均衡开高亮 >0.7 / 关 <0.1、全同图仍全黑**）** / **录制状态机（先配置后开录 + 立即停止：S 出配置对话框、选 GIF/低画质并断言持久化、取消/Esc 回 idle、再开记住上次选择、确认进 starting 倒计时、采集（headless 真实采集成功）、S 立即停止无 stopping 中间态、saving 自动弹系统保存（冒烟模拟取消）、保存参数与开录前一致、放弃回 idle；GIF 画质单元：gif-core 档位计划/尺寸上限/字节预算/合成帧编码合法；GIF 切换抓帧端到端：默认方式 switch + 默认帧间 0.5s、配置框帧间时长输入联动、switch 模式开录首帧不自抓、两次槽位切换 + C 手动帧 = 3 帧且徽标同步、帧尺寸 = 显示区设备像素原尺寸（≤2560 封顶）、立即停止、编码 GIF 合法且 GCE delay 全为固定帧间时长（设 0.8s → 全 80×1/100s）、放弃回 idle）** / twinview:// 协议链路，截屏保存 `smoke-home.png`（含网格与文件夹拼贴画面），全部通过打印 `[SMOKE] 全部通过` 并退出。
 
 ## CLI 与集成
 

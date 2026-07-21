@@ -61,6 +61,11 @@ export function useKeyboard() {
         if (s.viewMode !== 'browse') s.toggleInfo()
         return
       }
+      if (key === 'h') {
+        // H：直方图显示/隐藏（与工具栏 toggle 同一 store 状态，持久化不变；无冲突键位——帮助是 ?）
+        s.toggleHisto()
+        return
+      }
       if (key === 'f') {
         // F 键：单图 / 对比激活格 / 网格当前格 = 进入或退出该格控件全屏（与双击链 L1 同一状态）
         if (s.viewMode === 'single') s.setFullscreenCell(s.fullscreenCell === 'single' ? null : 'single')
@@ -110,7 +115,10 @@ export function useKeyboard() {
         const nav = getNavList(s)
         const cur = nav.findIndex((x) => x.id === s.currentId)
         if (key === 'enter') {
-          if (s.currentId) s.enterSingle(s.currentId)
+          // Enter 勾选分流（第十六轮）：勾选 1 张 → 该图单图；≥2 张 → 对比选中（2 张 A/B、≥3 张网格，入口重置并排）；0 张 → 焦点图单图，无焦点无操作
+          if (s.checked.length === 1) s.enterSingle(s.checked[0])
+          else if (s.checked.length >= 2) s.startCompareFromChecked()
+          else if (s.currentId) s.enterSingle(s.currentId)
           e.preventDefault()
         } else if (key === 'backspace') {
           s.navigateUp()

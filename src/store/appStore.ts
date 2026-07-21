@@ -734,12 +734,17 @@ export const useAppStore = create<AppState>()((set, get) => ({
   startCompareFromChecked: () => {
     const { checked } = get()
     if (checked.length === 2) {
+      // 第十六轮：「对比选中」进入 A/B 对比时布局固定重置为并排（不沿用上次记住的布局；
+      // 会话内 W 手动切换与持久化仍生效，仅入口动作重置；网格 ≥3 与 CLI --layout 路径不受影响）
+      updateSettings({ compareLayout: 'side' })
       set({
         slotA: checked[0],
         slotB: checked[1],
         activeSlot: 'A',
         viewMode: 'compare',
         fullscreenCell: null,
+        compareLayout: 'side',
+        diffPrevLayout: 'side',
         sharedTransform: newTransform(),
         transformA: newTransform(),
         transformB: newTransform(),

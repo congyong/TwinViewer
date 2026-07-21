@@ -667,6 +667,82 @@ async function runSmokeTest(win) {
         return fail(`真全屏/槽位导航不符预期: ${JSON.stringify(navAssert)}`)
       }
 
+      // a.8b) 第十六轮：对比选中进入重置并排 + H 直方图开关 + Enter 勾选分流（事件级）
+      const uxAssert = await win.webContents.executeJavaScript(`(async () => {
+        const store = window.__twinviewStore
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const out = {}
+        const S = () => store.getState()
+        const ids = S().images.map((e) => e.id)
+        const [idA, idB, idC] = ids
+        const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }))
+        // --- 对比选中固定并排：手动切到 wipe（持久化生效）→ 进对比选中 → 必须重置 side ---
+        store.setState({ checked: [idA, idB], viewMode: 'browse', fullscreenCell: null, notice: null })
+        S().setCompareLayout('wipe')
+        await wait(100)
+        out.presetWipe = S().compareLayout === 'wipe'
+        S().startCompareFromChecked()
+        await wait(200)
+        out.sideReset = S().viewMode === 'compare' && S().compareLayout === 'side' &&
+          S().slotA === idA && S().slotB === idB
+        // diff 布局进入同样重置 side
+        store.setState({ viewMode: 'browse', compareLayout: 'diff', notice: null })
+        await wait(100)
+        S().startCompareFromChecked()
+        await wait(200)
+        out.sideResetFromDiff = S().viewMode === 'compare' && S().compareLayout === 'side'
+        // 网格路径不受影响：≥3 张进网格，布局不被重置
+        store.setState({ viewMode: 'browse', checked: [idA, idB, idC], compareLayout: 'overlay', notice: null })
+        await wait(100)
+        S().startCompareFromChecked()
+        await wait(200)
+        out.gridNoReset = S().viewMode === 'grid' && S().gridIds.length === 3 && S().compareLayout === 'overlay'
+        // --- H 直方图开关（与工具栏同一状态，事件级大小写均生效） ---
+        const h0 = S().histoVisible
+        key('h')
+        await wait(100)
+        out.hToggled = S().histoVisible === !h0
+        key('H')
+        await wait(100)
+        out.hToggledBack = S().histoVisible === h0
+        // --- Enter 勾选分流 ---
+        store.setState({ viewMode: 'browse', checked: [idB], gridIds: [], currentId: idA, fullscreenCell: null, notice: null })
+        await wait(100)
+        key('Enter')
+        await wait(150)
+        out.enterOne = S().viewMode === 'single' && S().currentId === idB // 勾选 1 张 → 该图单图
+        store.setState({ viewMode: 'browse', checked: [idA, idB], notice: null })
+        await wait(100)
+        key('Enter')
+        await wait(150)
+        out.enterTwo = S().viewMode === 'compare' && S().slotA === idA && S().slotB === idB &&
+          S().compareLayout === 'side' // 勾选 2 张 → A/B 对比且并排重置
+        store.setState({ viewMode: 'browse', checked: [idA, idB, idC], notice: null })
+        await wait(100)
+        key('Enter')
+        await wait(150)
+        out.enterThree = S().viewMode === 'grid' && S().gridIds.length === 3 // ≥3 张 → 网格
+        store.setState({ viewMode: 'browse', checked: [], gridIds: [], currentId: idC, notice: null })
+        await wait(100)
+        key('Enter')
+        await wait(150)
+        out.enterZero = S().viewMode === 'single' && S().currentId === idC // 0 勾选有焦点 → 焦点图单图
+        // 复位（不干扰后续断言与截图；布局经 action 复位以同步持久化设置，避免影响下次冒烟初始值）
+        store.setState({ viewMode: 'browse', checked: [], gridIds: [], notice: null })
+        S().setCompareLayout('side')
+        S().setViewMode('browse')
+        await wait(200)
+        out.ok = out.presetWipe && out.sideReset && out.sideResetFromDiff && out.gridNoReset &&
+          out.hToggled && out.hToggledBack &&
+          out.enterOne && out.enterTwo && out.enterThree && out.enterZero
+        return out
+      })()`)
+      console.log(`[SMOKE] 对比选中重置并排+H+Enter分流: ${JSON.stringify(uxAssert)}`)
+      if (!uxAssert.ok) {
+        clearTimeout(killer)
+        return fail(`对比选中重置/H/Enter 分流不符预期: ${JSON.stringify(uxAssert)}`)
+      }
+
       // a.9) 视图级物理全屏（Shift+F 直进，无 fullscreenCell）：视图普通分支渲染悬浮迷你条，pane 布局不变，chrome 全卸载
       const fsAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
