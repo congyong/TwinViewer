@@ -5,6 +5,12 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.1] - 2026-07-21
+
+### 变更
+
+- **录制配置前置**：按 `S` / 录制按钮先弹出**开录前配置对话框**（格式 MP4/GIF + 画质 高/中/低，默认取上次选择并**持久化**；「开始录制」/「取消」，Esc 关闭），确认后才进入「3S 后开始录制」倒计时；停止后**直接弹系统保存对话框选保存位置**，格式/画质按开录前选择执行、不再重复询问；取消路径选择或保存失败可「重试保存 / 放弃录制」
+
 ## [0.2.0] - 2026-07-21
 
 ### 新增
@@ -99,6 +105,7 @@
 - macOS DMG 改 ad-hoc 签名，修复 arm64「已损坏，无法打开」（首次打开仍需「右键 → 打开」）
 - 对比模式 X 交换失效修复；仅勾选导航允许槽位重复（移除误报提示）
 
+[0.2.1]: https://github.com/congyong/TwinViewer/releases/tag/v0.2.1
 [0.2.0]: https://github.com/congyong/TwinViewer/releases/tag/v0.2.0
 [0.1.1]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.1
 [0.1.0]: https://github.com/congyong/TwinViewer/releases/tag/v0.1.0
