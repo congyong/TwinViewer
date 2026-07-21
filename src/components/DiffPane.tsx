@@ -2,7 +2,7 @@
  * 差值热图窗格（diff 布局）：
  * - A/B 解码产物（decode-cache，blob 不污染 canvas）→ computeDiffBitmap 逐像素差值 → 单 canvas 显示
  * - 交互与 ViewerPane 对齐：滚轮锚点缩放 / 拖拽平移 / 双击走全屏链 / R·L 旋转（transform.rotation）
- * - 重算时机：仅源图（A/B bitmap）、容差、colormap 变化时重算（停手防抖 100ms）；缩放/平移只重绘不重算
+ * - 重算时机：仅源图（A/B bitmap）、容差、colormap、均衡开关 变化时重算（停手防抖 100ms）；缩放/平移只重绘不重算
  * - ALT 探针在 diff 下不支持（显示的是合成图而非源图，坐标会误导；从略）
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -42,6 +42,8 @@ export function DiffPane({
 }: DiffPaneProps) {
   const tolerance = useAppStore((s) => s.diffTolerance)
   const colormap = useAppStore((s) => s.diffColormap)
+  const equalize = useAppStore((s) => s.diffEqualize)
+  const setDiffMax = useAppStore((s) => s.setDiffMax)
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
@@ -123,22 +125,24 @@ export function DiffPane({
     if (meta) onEffectiveZoom?.(effZoom)
   }, [effZoom, meta, onEffectiveZoom])
 
-  // 差值重算：源图 / 容差 / colormap 变化才重算（防抖 100ms，滑块连拖不炸 CPU）
+  // 差值重算：源图 / 容差 / colormap / 均衡 变化才重算（防抖 100ms，滑块连拖不炸 CPU）
   useEffect(() => {
     if (!decoded?.a.bitmap || !decoded.b.bitmap) return
     const bmpA = decoded.a.bitmap
     const bmpB = decoded.b.bitmap
     setComputing(true)
     const timer = window.setTimeout(() => {
-      void computeDiffBitmap(bmpA, bmpB, tolerance, colormap).then((bmp) => {
+      const stats = { max: 0 }
+      void computeDiffBitmap(bmpA, bmpB, tolerance, colormap, equalize, stats).then((bmp) => {
         diffBmpRef.current?.close()
         diffBmpRef.current = bmp
         setDiffBmp(bmp)
+        setDiffMax(stats.max)
         setComputing(false)
       })
     }, 100)
     return () => clearTimeout(timer)
-  }, [decoded, tolerance, colormap])
+  }, [decoded, tolerance, colormap, equalize, setDiffMax])
 
   // 绘制：transform 变化只重绘（drawImage 已算好的 diff bitmap），不重算
   const rw = meta ? meta.w * effZoom : 0

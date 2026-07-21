@@ -2,11 +2,13 @@
  * A/B 差值热图（diff 布局）：
  * - 公共采样网格 = A 的自然尺寸，B 经 canvas 平滑缩放到 A 尺寸（双线性近似，视觉正确且实现简单）
  * - 逐像素差值 = 三通道最大 abs diff（max(|Δr|,|Δg|,|Δb|)，取最大而非欧氏距离：对通道级错位更敏感、计算更省）
- * - ≤容差的像素置 0（黑色）；其余按 (diff-容差)/(255-容差) 归一后过 colormap LUT
+ * - ≤容差的像素置 0（黑色）；其余默认**直方图均衡**：>容差的幅值按 CDF 累积分布重映射到 0–1 全区间再过
+ *   colormap LUT（两图很接近时小差异被拉伸可见）；关闭均衡回到 (diff-容差)/(255-容差) 线性归一
+ * - 全黑（无 >容差像素）时跳过均衡（无映射对象亦避免除零）；stats 出参回报全局 diff 最大值（面板显示用）
  * - colormap：inferno / viridis 为标准 colormap 的锚点分段线性插值近似（256 级，视觉与原 LUT 一致）；
  *   gray 线性；coolwarm 发散（(59,76,192)→(221,221,221)→(180,4,38)，中点浅、两端深蓝深红）
  * - 输入 bitmap 来自 decode-cache（blob 解码，canvas 不污染）；计算结果由调用方缓存，
- *   缩放/平移不重算，源图/容差/colormap 变化才重算
+ *   缩放/平移不重算，源图/容差/colormap/均衡 变化才重算
  */
 import type { DiffColormap } from '@/lib/settings'
 
@@ -103,13 +105,17 @@ function toImageData(src: ImageBitmap, w: number, h: number): ImageData {
 /**
  * 计算 A/B 差值热图：公共网格 = A 的自然尺寸（B 缩放对齐）。
  * 返回与 A 同尺寸的 ImageBitmap（可直接按 A 的几何绘制）。
- * 计算为同步像素循环（1080p ≈ 2M 像素，约 20–40ms），由调用方控制触发时机。
+ * 计算为同步像素循环（1080p ≈ 2M 像素，约 20–40ms；均衡仅多一次 256-bin 直方图+CDF，开销可忽略），
+ * 由调用方控制触发时机。
+ * equalize：>容差幅值按 CDF 重映射（小差异拉伸可见）；stats 出参回报全局 diff 最大值。
  */
 export function computeDiffBitmap(
   bmpA: ImageBitmap,
   bmpB: ImageBitmap,
   tolerance: number,
   colormap: DiffColormap,
+  equalize = false,
+  stats?: { max: number },
 ): Promise<ImageBitmap> {
   const w = bmpA.width
   const h = bmpA.height
@@ -121,7 +127,13 @@ export function computeDiffBitmap(
   const lut = getDiffLut(colormap)
   const tol = Math.min(128, Math.max(0, tolerance))
   const denom = 255 - tol
-  for (let i = 0; i < sa.length; i += 4) {
+  // 第一遍：逐像素 diff + >容差直方图 + 全局最大值
+  const npx = w * h
+  const diffs = new Uint8Array(npx)
+  const hist = new Uint32Array(256)
+  let count = 0
+  let max = 0
+  for (let i = 0, p = 0; i < sa.length; i += 4, p++) {
     const dr = sa[i] - sb[i]
     const dg = sa[i + 1] - sb[i + 1]
     const db2 = sa[i + 2] - sb[i + 2]
@@ -129,11 +141,33 @@ export function computeDiffBitmap(
     const ag = dg < 0 ? -dg : dg
     const ab = db2 < 0 ? -db2 : db2
     const diff = ar > ag ? (ar > ab ? ar : ab) : ag > ab ? ag : ab
+    diffs[p] = diff
+    if (diff > max) max = diff
+    if (diff > tol) {
+      hist[diff]++
+      count++
+    }
+  }
+  if (stats) stats.max = max
+  // 均衡映射表（diff → LUT 下标）：cdf[diff]/count；全黑（count=0）时跳过避免除零
+  let eqMap: Uint8ClampedArray | null = null
+  if (equalize && count > 0) {
+    eqMap = new Uint8ClampedArray(256)
+    let acc = 0
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v]
+      eqMap[v] = Math.round((acc / count) * 255)
+    }
+  }
+  // 第二遍：映射过 colormap
+  for (let i = 0, p = 0; i < sa.length; i += 4, p++) {
+    const diff = diffs[p]
     if (diff <= tol) {
       out[i + 3] = 255 // 黑（RGB=0）
       continue
     }
-    const idx = Math.round(((diff - tol) / denom) * 255) * 3
+    const lv = eqMap ? eqMap[diff] : Math.round(((diff - tol) / denom) * 255)
+    const idx = lv * 3
     out[i] = lut[idx]
     out[i + 1] = lut[idx + 1]
     out[i + 2] = lut[idx + 2]

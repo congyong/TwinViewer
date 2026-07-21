@@ -52,12 +52,16 @@ export interface SettingsData {
   diffColormap: DiffColormap
   /** 差值容差 0–128（≤容差的像素置黑） */
   diffTolerance: number
+  /** 差值热图直方图均衡（>容差的幅值按 CDF 重映射到全区间，小差异拉伸可见） */
+  diffEqualize: boolean
   /** 录制格式（开录前配置对话框默认取上次选择） */
   recFormat: RecFormat
   /** 录制画质档（视频码率于录制开始确定；GIF 影响色数与缩放） */
   recQuality: RecQuality
-  /** GIF 抓帧方式：连续采样 / 切换抓帧（仅 GIF 格式） */
+  /** GIF 抓帧方式：连续采样 / 切换抓帧（仅 GIF 格式；默认切换抓帧） */
   recGifMode: RecGifMode
+  /** GIF 切换抓帧帧间时长（秒，0.1–5；编码时每帧 delay 统一用该值） */
+  recGifFrameSec: number
   favorites: FavoriteEntry[]
 }
 
@@ -85,9 +89,11 @@ export const DEFAULT_SETTINGS: SettingsData = {
   overlayOpacity: 0.5,
   diffColormap: 'inferno',
   diffTolerance: 16,
+  diffEqualize: true,
   recFormat: 'video',
   recQuality: 'medium',
-  recGifMode: 'continuous',
+  recGifMode: 'switch',
+  recGifFrameSec: 0.5,
   favorites: [],
 }
 
@@ -158,9 +164,14 @@ function sanitize(raw: Partial<SettingsData>): SettingsData {
       const n = Number(raw.diffTolerance)
       return Number.isFinite(n) ? Math.min(128, Math.max(0, Math.round(n))) : d.diffTolerance
     })(),
+    diffEqualize: bool(raw.diffEqualize, d.diffEqualize),
     recFormat: pick(raw.recFormat, REC_FORMAT_VALUES, d.recFormat),
     recQuality: pick(raw.recQuality, REC_QUALITY_VALUES, d.recQuality),
     recGifMode: pick(raw.recGifMode, REC_GIF_MODE_VALUES, d.recGifMode),
+    recGifFrameSec: (() => {
+      const n = Number(raw.recGifFrameSec)
+      return Number.isFinite(n) ? Math.min(5, Math.max(0.1, Math.round(n * 10) / 10)) : d.recGifFrameSec
+    })(),
     favorites: Array.isArray(raw.favorites)
       ? raw.favorites.filter(
           (f): f is FavoriteEntry =>

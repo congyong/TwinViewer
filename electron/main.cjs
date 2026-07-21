@@ -810,7 +810,8 @@ async function runSmokeTest(win) {
 
       // a.12) 差值热图：UI 挂载（配置面板+滑块+diff canvas）+ 同图全黑 + 异图非黑 + 滑块联动 store +
       //       面板仅 diff 可见 + 单元级（合成位图）：容差单调抑制与置黑阈值、四种必需 colormap
-      //       （inferno/gray/viridis/coolwarm）齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差
+      //       （inferno/gray/viridis/coolwarm）齐全有序且可切换、coolwarm 中点近白/两端蓝红、gray 消色差 +
+      //       直方图均衡（默认开+面板开关联动+max 显示；8 灰级差：均衡开高亮 >0.7 / 关 <0.1；全同图仍全黑）
       const diffAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
         const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -854,6 +855,21 @@ async function runSmokeTest(win) {
         store.setState({ compareLayout: 'diff' })
         await wait(500)
         out.panelBackInDiff = !!document.querySelector('[data-diff-panel]')
+        // 均衡开关：面板内存在、默认开（settings 默认值）、点击联动 store；max 显示存在
+        const { DEFAULT_SETTINGS: DEFS } = await import('/src/lib/settings.ts')
+        out.eqDefault = DEFS.diffEqualize === true && S().diffEqualize === true
+        const eqSw = document.querySelector('[data-diff-equalize]')
+        out.eqSwitchShown = !!eqSw
+        out.eqMaxShown = !!document.querySelector('[data-diff-max]')
+        if (eqSw) {
+          eqSw.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          await wait(200)
+          out.eqWired = S().diffEqualize === false
+          S().setDiffEqualize(true)
+          await wait(200)
+        } else {
+          out.eqWired = false
+        }
         // 单元级：合成位图精确验证（d=100 恒定）
         const { computeDiffBitmap, getDiffLut } = await import('/src/lib/diffmap.ts')
         const { DIFF_COLORMAP_VALUES } = await import('/src/lib/settings.ts')
@@ -895,14 +911,31 @@ async function runSmokeTest(win) {
         const cv = await read(await computeDiffBitmap(bmpA, bmpB, 16, 'viridis'))
         out.cmapDiffers = ci.some((v, i) => v !== cv[i])
         bmpA.close(); bmpB.close()
+        // 直方图均衡单元：两张仅差 8 灰级的图（容差 4）→ 均衡开 = CDF 映射满幅高亮（>0.7），
+        // 均衡关 = 线性 (8-4)/(255-4)≈0.016（<0.1）；全同图跳过均衡仍全黑；stats 回报 max=8
+        const eA = await mk('rgb(108,108,108)')
+        const eB = await mk('rgb(100,100,100)')
+        const eqOn = await read(await computeDiffBitmap(eA, eB, 4, 'gray', true))
+        const eqOff = await read(await computeDiffBitmap(eA, eB, 4, 'gray', false))
+        out.eqOnBright = eqOn[0] > 179
+        out.eqOffDim = eqOff[0] < 25
+        const eqSame = await read(await computeDiffBitmap(eA, eA, 4, 'gray', true))
+        out.eqSameBlack = eqSame.every((v) => v === 0)
+        const eStats = { max: 0 }
+        await computeDiffBitmap(eA, eB, 4, 'gray', true, eStats)
+        out.eqMaxStat = eStats.max === 8
+        eA.close(); eB.close()
         // 复位
         store.setState({ viewMode: 'browse', compareLayout: 'side', slotA: null, slotB: null, diffTolerance: 16, diffColormap: 'inferno' })
+        S().setDiffEqualize(true)
         S().setViewMode('browse')
         await wait(200)
         out.ok = out.panelShown && out.canvasShown && out.diffNonBlack && out.sameBlack &&
           out.sliderShown && out.sliderWired && out.panelHiddenOutsideDiff && out.panelBackInDiff &&
           out.tolEffect && out.grayAchromatic && out.coolwarmMidWhite && out.coolwarmEnds &&
-          out.cmapsListed && out.cmapsSwitchable && out.cmapDiffers
+          out.cmapsListed && out.cmapsSwitchable && out.cmapDiffers &&
+          out.eqDefault && out.eqSwitchShown && out.eqMaxShown && out.eqWired &&
+          out.eqOnBright && out.eqOffDim && out.eqSameBlack && out.eqMaxStat
         return out
       })()`)
       console.log(`[SMOKE] 差值热图: ${JSON.stringify(diffAssert)}`)
@@ -915,7 +948,8 @@ async function runSmokeTest(win) {
       //       选 GIF/低画质（持久化到 settings）→ 取消/Esc 回 idle → 再开记住上次选择 →
       //       「开始录制」→ starting 倒计时 → S 取消 → 确认采集（结果报告值）→ **S 立即停止**（无 stopping 中间态）→
       //       saving 自动弹系统保存（冒烟 IPC 模拟用户取消，留 saving）→ 保存参数与开录前一致 → 放弃回 idle；
-      //       GIF 画质单元（gif-core 档位计划/尺寸上限/合成帧编码）+ a.13b 高档实采目检样本写盘（报告值）
+      //       GIF 画质单元（gif-core 档位计划/尺寸上限/合成帧编码）+ a.13b 高档实采目检样本写盘（报告值）+
+      //       a.13c 切换抓帧（默认 switch/0.5s 帧间时长；设 0.8s → GCE delay 全 80）
       const gifOut = path.join(__dirname, '..', 'gif-smoke-high.gif')
       const recAssert = await win.webContents.executeJavaScript(`(async () => {
         const store = window.__twinviewStore
@@ -925,7 +959,7 @@ async function runSmokeTest(win) {
         const click = (sel) => document.querySelector(sel)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         const ids = S().images.map((e) => e.id)
         store.setState({ viewMode: 'single', currentId: S().images[0].id, fullscreenCell: null, physicalFullscreen: false })
-        S().setRecFormat('video'); S().setRecQuality('medium') // 复位默认（冒烟 profile 可能残留上次运行值）
+        S().setRecFormat('video'); S().setRecQuality('medium'); S().setRecGifMode('continuous') // 复位默认（冒烟 profile 可能残留上次运行值；a.13a 主流程按连续采样语义走）
         await wait(300)
         out.btnShown = !!document.querySelector('[data-rec-btn]')
         // S 键 → 开录前配置对话框
@@ -1059,14 +1093,21 @@ async function runSmokeTest(win) {
         S().setViewMode('browse')
         await wait(200)
         // a.13c) GIF 切换抓帧：switch 模式开录（首帧不自抓=0）→ 两次 slot 切换 + C 手动帧（=3 帧）→
-        //       全分辨率（帧尺寸=显示区设备像素原尺寸，仅 >2560 宽封顶）→ 立即停止 → 编码解析 GCE delay 非均匀 → 放弃回 idle
+        //       全分辨率（帧尺寸=显示区设备像素原尺寸，仅 >2560 宽封顶）→ 立即停止 →
+        //       编码解析 GCE delay = 固定帧间时长（设 0.8s → 全 80×1/100s）→ 放弃回 idle
         //       注意：断言必须用 window.__twinviewRecorder（store 同模块实例）；动态 import 路径与 '@/' 别名不同源会拿到另一份会话单例
-        S().setRecFormat('gif'); S().setRecQuality('medium'); S().setRecGifMode('switch')
+        // 默认值断言：新用户抓帧方式默认 switch、帧间时长默认 0.5s（持久化逻辑不变）
+        const { DEFAULT_SETTINGS: RDEF } = await import('/src/lib/settings.ts')
+        out.swDefaultMode = RDEF.recGifMode === 'switch' && RDEF.recGifFrameSec === 0.5
+        S().setRecFormat('gif'); S().setRecQuality('medium'); S().setRecGifMode('switch'); S().setRecGifFrameSec(0.8)
         store.setState({ viewMode: 'compare', slotA: ids[0], slotB: ids[1], compareLayout: 'side', fullscreenCell: null, physicalFullscreen: false })
         await wait(500)
         S().toggleRecord()
         await wait(150)
         out.swConfigMode = S().recPhase === 'configuring' && !!document.querySelector('[data-rec-gifmode="switch"]')
+        // 帧间时长输入（switch 模式下可见；当前值 0.8）
+        const gifSecInput = document.querySelector('[data-rec-gifsec]')
+        out.swSecInput = !!gifSecInput && Number(gifSecInput.value) === 0.8
         S().confirmRecConfig()
         await wait(150)
         store.setState({ recCountdown: 1 })
@@ -1074,7 +1115,7 @@ async function runSmokeTest(win) {
         out.swCaptureOk = S().recPhase === 'recording'
         out.swInitFrames = S().recFrameCount === 0
         const rec2 = window.__twinviewRecorder
-        // 两次 slot 切换（间隔不等，供 delay 非均匀断言；订阅延迟 400ms 去抖抓帧）
+        // 两次 slot 切换（订阅延迟 400ms 去抖抓帧）
         store.setState({ slotA: ids[2] })
         await wait(650)
         store.setState({ slotB: ids[3] })
@@ -1100,26 +1141,26 @@ async function runSmokeTest(win) {
         for (let i = 0; i < 40; i++) { if (S().recPhase !== 'recording') break; await wait(50) }
         out.swAfterStop = S().recPhase
         try {
-          const swBlob = await rec2.encodeGif('medium')
+          const swBlob = await rec2.encodeGif('medium', Math.round(S().recGifFrameSec * 1000))
           const swBuf = new Uint8Array(await swBlob.arrayBuffer())
           out.swGifMagic = swBuf[0] === 0x47 && swBuf[1] === 0x49 && swBuf[2] === 0x46
-          // 解析 GCE（21 F9 04 packed delayLo delayHi）delay（1/100s）：≥3 帧且非均匀
+          // 解析 GCE（21 F9 04 packed delayLo delayHi）delay（1/100s）：≥3 帧且全部 = 固定帧间时长（0.8s → 80）
           const delays = []
           for (let i = 0; i + 6 < swBuf.length; i++) {
             if (swBuf[i] === 0x21 && swBuf[i + 1] === 0xF9 && swBuf[i + 2] === 0x04) delays.push(swBuf[i + 4] | (swBuf[i + 5] << 8))
           }
           out.swDelays = delays
-          out.swDelayNonUniform = delays.length >= 3 && new Set(delays).size >= 2
+          out.swDelayFixed = delays.length >= 3 && delays.every((d) => d === 80)
         } catch (e) {
           out.swEncErr = String((e && e.message) || e)
           out.swGifMagic = false
-          out.swDelayNonUniform = false
+          out.swDelayFixed = false
         }
-        // 放弃 → idle；复位配置
+        // 放弃 → idle；复位配置（回新默认值：video/medium/switch/0.5s）
         click('[data-rec-discard]')
         await wait(200)
         out.swDiscarded = S().recPhase === 'idle'
-        S().setRecGifMode('continuous'); S().setRecFormat('video'); S().setRecQuality('medium')
+        S().setRecGifMode('switch'); S().setRecGifFrameSec(0.5); S().setRecFormat('video'); S().setRecQuality('medium')
         store.setState({ viewMode: 'browse' })
         S().setViewMode('browse')
         await wait(200)
@@ -1130,7 +1171,8 @@ async function runSmokeTest(win) {
           out.paramsKept && out.dialogShown && out.saveParamsShown && out.noReask && out.discarded &&
           out.planTiers && out.planDimsCap && out.planEffFrames && out.gifEncodes &&
           out.swConfigMode && out.swCaptureOk && out.swInitFrames && out.swFrames && out.swBadge &&
-          out.swFullRes && out.swGifMagic && out.swDelayNonUniform && out.swDiscarded
+          out.swFullRes && out.swGifMagic && out.swDelayFixed && out.swDiscarded &&
+          out.swDefaultMode && out.swSecInput
         return out
       })()`)
       console.log(`[SMOKE] 录制状态机: ${JSON.stringify(recAssert)}`)

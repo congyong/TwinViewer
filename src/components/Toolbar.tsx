@@ -119,6 +119,9 @@ export function Toolbar() {
   const setDiffColormap = useAppStore((s) => s.setDiffColormap)
   const diffTolerance = useAppStore((s) => s.diffTolerance)
   const setDiffTolerance = useAppStore((s) => s.setDiffTolerance)
+  const diffEqualize = useAppStore((s) => s.diffEqualize)
+  const setDiffEqualize = useAppStore((s) => s.setDiffEqualize)
+  const diffMax = useAppStore((s) => s.diffMax)
   const recPhase = useAppStore((s) => s.recPhase)
   const toggleRecord = useAppStore((s) => s.toggleRecord)
   const nextBatch = useAppStore((s) => s.nextBatch)
@@ -294,6 +297,15 @@ export function Toolbar() {
                 title="容差 0–128"
                 data-diff-tolerance-num
               />
+              <label
+                className="flex cursor-pointer items-center gap-1 text-xs text-[var(--tv-text)]"
+                title="直方图均衡：>容差的差值幅值按累积分布拉伸到全区间（两图很接近时小差异可见）；关闭 = 容差–255 线性"
+              >
+                <Switch checked={diffEqualize} onCheckedChange={setDiffEqualize} className="scale-90" data-diff-equalize /> 均衡
+              </label>
+              <span className="text-[11px] text-[var(--tv-text-faint)]" title="当前 A/B 全局差值最大值（>容差的部分才会显示）" data-diff-max>
+                max {diffMax}
+              </span>
             </div>
           )}
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--tv-text)]" title="同步：两侧共享缩放平移（并排模式）">

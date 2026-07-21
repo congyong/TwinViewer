@@ -1,7 +1,7 @@
 /**
  * 录制 UI 叠层（挂在显示区列上，absolute 覆盖查看区）：
- * - configuring：开录前配置对话框（格式 MP4/GIF + 画质 高/中/低，默认取上次选择并持久化；
- *   「开始录制」→ 倒计时，「取消」/ Esc → 回 idle）
+ * - configuring：开录前配置对话框（格式 MP4/GIF + 画质 高/中/低；GIF 抓帧方式 连续采样/切换抓帧（默认），
+ *   切换抓帧另有帧间时长 0.1–5 秒；均默认取上次选择并持久化；「开始录制」→ 倒计时，「取消」/ Esc → 回 idle）
  * - starting：中央半透明胶囊倒计时（「3S 后开始录制」，再按 S 取消）
  * - recording：右上角红点计时徽标（再按 S = **立即停止**进 saving，无停止倒计时）
  * - saving：停止后自动按开录前选择弹系统保存对话框（不再询问格式/画质）；
@@ -36,11 +36,13 @@ export function RecordOverlay() {
   const format = useAppStore((s) => s.recFormat)
   const quality = useAppStore((s) => s.recQuality)
   const gifMode = useAppStore((s) => s.recGifMode)
+  const gifSec = useAppStore((s) => s.recGifFrameSec)
   const frameCount = useAppStore((s) => s.recFrameCount)
   const providerKind = useAppStore((s) => s.providerKind)
   const setRecFormat = useAppStore((s) => s.setRecFormat)
   const setRecQuality = useAppStore((s) => s.setRecQuality)
   const setRecGifMode = useAppStore((s) => s.setRecGifMode)
+  const setRecGifFrameSec = useAppStore((s) => s.setRecGifFrameSec)
   const confirmRecConfig = useAppStore((s) => s.confirmRecConfig)
   const cancelRecConfig = useAppStore((s) => s.cancelRecConfig)
   const saveRecording = useAppStore((s) => s.saveRecording)
@@ -149,6 +151,22 @@ export function RecordOverlay() {
                     ? '切换抓帧：切图（导航/交换/换槽/显示源）自动抓一帧全分辨率画面（≤2560 宽，≤60 帧），按 C 手动补帧'
                     : '连续采样：高 15fps · ≤1280 宽（末尾 20 秒）；中 12fps · 720 宽（30 秒）；低 8fps · 480 宽（30 秒）'}
                 </p>
+                {gifMode === 'switch' && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-xs text-[var(--tv-text-dim)]">帧间时长（秒）</span>
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={5}
+                      step={0.1}
+                      value={gifSec}
+                      onChange={(e) => setRecGifFrameSec(Number(e.target.value))}
+                      className="h-6 w-16 rounded border border-[var(--tv-border2)] bg-transparent px-1 text-center text-xs text-[var(--tv-text)]"
+                      title="每帧在 GIF 中的停留时长 0.1–5 秒（编码时统一应用）"
+                      data-rec-gifsec
+                    />
+                  </div>
+                )}
               </>
             )}
 

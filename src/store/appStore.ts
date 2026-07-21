@@ -248,6 +248,10 @@ export interface AppState {
   gridTransforms: Record<number, ViewTransform>
   diffColormap: DiffColormap
   diffTolerance: number
+  /** 差值热图直方图均衡（>容差幅值 CDF 重映射；持久化，默认开） */
+  diffEqualize: boolean
+  /** 当前 diff 全局最大值（DiffPane 重算后回报，面板显示用；会话级） */
+  diffMax: number
   /** D 键切 diff 前的布局（退出 diff 时还原；会话级不持久化） */
   diffPrevLayout: CompareLayout
   /** 录制状态机：idle→configuring(开录前配置)→starting(倒计时)→recording→saving(系统保存对话框)→idle（停止为立即，无倒计时） */
@@ -261,8 +265,10 @@ export interface AppState {
   /** 开录前选择的格式/画质（持久化，取上次选择；保存阶段不再询问） */
   recFormat: RecFormat
   recQuality: RecQuality
-  /** GIF 抓帧方式（持久化）：连续采样 / 切换抓帧（事件驱动全分辨率） */
+  /** GIF 抓帧方式（持久化）：连续采样 / 切换抓帧（事件驱动全分辨率，默认切换抓帧） */
   recGifMode: RecGifMode
+  /** GIF 切换抓帧帧间时长（秒，0.1–5，持久化；编码时每帧 delay 统一用该值，含末帧） */
+  recGifFrameSec: number
   /** 切换抓帧模式：已抓帧数（徽标显示；连续/视频模式恒 0） */
   recFrameCount: number
 
@@ -310,6 +316,9 @@ export interface AppState {
   toggleDiffLayout: () => void
   setDiffColormap: (m: DiffColormap) => void
   setDiffTolerance: (v: number) => void
+  setDiffEqualize: (v: boolean) => void
+  /** DiffPane 重算后回报当前 diff 全局最大值（面板显示用） */
+  setDiffMax: (v: number) => void
   /** S 键 / 工具栏按钮：idle→开录前配置；starting 倒计时内→取消；录制中→立即停止进 saving（configuring/saving 中 S 无效） */
   toggleRecord: () => void
   /** 配置对话框「开始录制」：确认格式/画质（已持久化）→ 进入 3 秒开始倒计时 */
@@ -321,6 +330,7 @@ export interface AppState {
   setRecFormat: (f: RecFormat) => void
   setRecQuality: (q: RecQuality) => void
   setRecGifMode: (m: RecGifMode) => void
+  setRecGifFrameSec: (sec: number) => void
   /** GIF 切换抓帧：手动补抓当前帧（C 键；无会话/非切换模式为 no-op） */
   grabGifFrame: () => void
   saveRecording: () => Promise<void>
@@ -443,6 +453,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   gridTransforms: {},
   diffColormap: settings.diffColormap,
   diffTolerance: settings.diffTolerance,
+  diffEqualize: settings.diffEqualize,
+  diffMax: 0,
   diffPrevLayout: settings.compareLayout === 'diff' ? 'side' : settings.compareLayout,
   recPhase: 'idle',
   recCountdown: 0,
@@ -452,6 +464,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   recFormat: settings.recFormat,
   recQuality: settings.recQuality,
   recGifMode: settings.recGifMode,
+  recGifFrameSec: settings.recGifFrameSec,
   recFrameCount: 0,
 
   openDirectory: async () => {
@@ -942,6 +955,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ diffTolerance: t })
   },
 
+  setDiffEqualize: (v) => {
+    updateSettings({ diffEqualize: v })
+    set({ diffEqualize: v })
+  },
+
+  setDiffMax: (v) => {
+    set({ diffMax: v })
+  },
+
   toggleRecord: () => {
     const phase = get().recPhase
     if (phase === 'idle') {
@@ -1032,6 +1054,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
     updateSettings({ recGifMode: m })
     set({ recGifMode: m })
   },
+  setRecGifFrameSec: (sec) => {
+    const v = Math.min(5, Math.max(0.1, Math.round(sec * 10) / 10))
+    updateSettings({ recGifFrameSec: v })
+    set({ recGifFrameSec: v })
+  },
   grabGifFrame: () => {
     const n = grabFrame()
     if (n >= 0) set({ recFrameCount: n })
@@ -1045,7 +1072,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
       let blob: Blob | null
       let ext: string
       if (isGif) {
-        blob = await encodeGif(s.recQuality)
+        // 切换抓帧：帧 delay 统一用配置的固定帧间时长（含末帧）；连续采样走档位均匀 delay（不传）
+        blob = await encodeGif(
+          s.recQuality,
+          s.recGifMode === 'switch' ? Math.round(s.recGifFrameSec * 1000) : undefined,
+        )
         ext = 'gif'
       } else {
         blob = s.recBlob

@@ -68,8 +68,6 @@ interface Session {
   gifCanvas: HTMLCanvasElement | null
   gctx: CanvasRenderingContext2D | null
   gifFrames: Uint8ClampedArray[]
-  /** 与 gifFrames 等长的抓帧时间戳（performance.now()），切换抓帧写 per-frame delay 用 */
-  gifTimes: number[]
   gifFrameSize: { w: number; h: number }
   gifMaxFrames: number
   gifTimer: number
@@ -136,7 +134,6 @@ export async function startCapture(quality: RecQuality, gifMode: GifMode = 'cont
   let gctx: CanvasRenderingContext2D | null = null
   let gifTimer = 0
   const gifFrames: Uint8ClampedArray[] = []
-  const gifTimes: number[] = []
   if (gifMode === 'continuous') {
     dims = gifFrameDims(cropW, cropH, quality)
     maxFrames = gifEffectiveMaxFrames(dims.w, dims.h, quality)
@@ -159,11 +156,7 @@ export async function startCapture(quality: RecQuality, gifMode: GifMode = 'cont
       gifTimer = window.setInterval(() => {
         g.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height)
         gifFrames.push(g.getImageData(0, 0, c.width, c.height).data.slice())
-        gifTimes.push(performance.now())
-        if (gifFrames.length > maxFrames) {
-          gifFrames.shift()
-          gifTimes.shift()
-        }
+        if (gifFrames.length > maxFrames) gifFrames.shift()
       }, Math.round(1000 / plan.fps))
     }
   }
@@ -185,7 +178,7 @@ export async function startCapture(quality: RecQuality, gifMode: GifMode = 'cont
 
   session = {
     stream, video, mirror, mirrorTimer, recorder, chunks, mime,
-    gifMode, gifCanvas, gctx, gifFrames, gifTimes, gifFrameSize: dims, gifMaxFrames: maxFrames, gifTimer, crop,
+    gifMode, gifCanvas, gctx, gifFrames, gifFrameSize: dims, gifMaxFrames: maxFrames, gifTimer, crop,
   }
   return { mime }
 }
@@ -197,10 +190,8 @@ export function grabFrame(): number {
   const { w, h } = s.gifFrameSize
   s.gctx.drawImage(s.video, s.crop.x, s.crop.y, s.crop.w, s.crop.h, 0, 0, w, h)
   s.gifFrames.push(s.gctx.getImageData(0, 0, w, h).data.slice())
-  s.gifTimes.push(performance.now())
   if (s.gifFrames.length > s.gifMaxFrames) {
     s.gifFrames.shift()
-    s.gifTimes.shift()
   }
   return s.gifFrames.length
 }
@@ -266,15 +257,15 @@ export function gifFrameCount(): number {
 }
 
 /** gif-core 编码收集帧（全局 rgb888 调色板 + 高/中档 FS 抖动）。
- *  切换抓帧：per-frame delay = 真实抓帧时间戳间隔（最后一帧固定 1s；间隔下限 20ms 防播放器异常） */
-export function encodeGif(quality: RecQuality): Promise<Blob> {
+ *  切换抓帧：per-frame delay 统一为固定帧间时长 switchDelayMs（默认 500ms，配置对话框可配 0.1–5s；含末帧）；
+ *  连续采样不传 delays，走档位 fps 均匀 delay */
+export function encodeGif(quality: RecQuality, switchDelayMs?: number): Promise<Blob> {
   const s = session
   if (!s || s.gifFrames.length === 0) return Promise.reject(new Error('无可用帧'))
   let delays: number[] | undefined
   if (s.gifMode === 'switch') {
-    delays = s.gifTimes.map((t, i) =>
-      i + 1 < s.gifTimes.length ? Math.max(20, Math.round(s.gifTimes[i + 1] - t)) : 1000,
-    )
+    const d = Math.min(5000, Math.max(100, Math.round(switchDelayMs ?? 500)))
+    delays = s.gifFrames.map(() => d)
   }
   return encodeGifFrames(s.gifFrames, s.gifFrameSize.w, s.gifFrameSize.h, quality, delays)
 }
